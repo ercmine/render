@@ -1,0 +1,107 @@
+# -----------------------------
+# OS-specific files
+# -----------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux / Unix temp files
+*~
+.nfs*
+
+# -----------------------------
+# Build systems and outputs
+# -----------------------------
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+
+# Common build output directories
+/bin/
+/lib/
+out/
+/dist/
+/build/*
+!/build/.gitkeep
+
+# Object / binary artifacts
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.ipa
+*.pdb
+*.idb
+*.ilk
+
+# -----------------------------
+# IDE and editor files
+# -----------------------------
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-workspace
+*.sublime-project
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# JetBrains
+*.iml
+
+# Vim / Emacs swaps
+*.swp
+*.swo
+*.tmp
+
+# -----------------------------
+# Logs and caches
+# -----------------------------
+*.log
+logs/
+
+.cache/
+.cache-loader/
+.ccache/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ninja_deps
+.ninja_log
+
+# -----------------------------
+# Archives and packages
+# -----------------------------
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
