@@ -1,0 +1,28 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "user-local",
+      "inherits": ["linux-debug"],
+      "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/local-toolchain.cmake",
+      "cacheVariables": {
+        "RENDER_DEPENDENCY_ROOT": "${sourceDir}/../render-deps",
+        "RENDER_SDL3_ROOT": "",
+        "RENDER_BGFX_ROOT": "",
+        "RENDER_WARNINGS_AS_ERRORS": "ON",
+        "RENDER_ENABLE_SANITIZERS": "ON"
+      },
+      "environment": {
+        "CC": "clang",
+        "CXX": "clang++"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "user-local",
+      "configurePreset": "user-local"
+    }
+  ]
+}

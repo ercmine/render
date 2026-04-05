@@ -40,6 +40,22 @@ The project is structured in layers:
 - `build/` — Build output staging and generated artifacts (ignored in git where appropriate).
 - `docs/` — Architecture and repository design documentation.
 
+
+## Build (Statement 2 Foundation)
+
+The project now includes an initial CMake-based build layer with reproducible out-of-source presets for Windows, macOS, and Linux.
+
+- Read `docs/build.md` for setup and command usage.
+- Read `docs/dependencies.md` for the dependency bootstrap strategy.
+- Run `scripts/bootstrap.sh` (macOS/Linux) or `scripts/bootstrap.ps1` (Windows) before first configure.
+
+Quick start example (Linux Debug):
+
+```bash
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+```
+
 ## Status
 
 This first commit establishes only the initial structure and documentation to support future implementation phases. No production renderer, gameplay systems, dependency setup, or full build logic is included yet.
