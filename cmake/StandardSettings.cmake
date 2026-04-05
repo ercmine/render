@@ -1,0 +1,16 @@
+function(render_apply_standard_settings)
+  set(CMAKE_CXX_STANDARD 20 PARENT_SCOPE)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON PARENT_SCOPE)
+  set(CMAKE_CXX_EXTENSIONS OFF PARENT_SCOPE)
+
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON PARENT_SCOPE)
+
+  # Keep generated artifacts under out/ for reproducible, clean worktrees.
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib" PARENT_SCOPE)
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib" PARENT_SCOPE)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin" PARENT_SCOPE)
+
+  if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  endif()
+endfunction()
