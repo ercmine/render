@@ -1,42 +1,20 @@
-# Dependency Strategy (Bootstrap Phase)
+# Dependency Strategy
 
-This repository uses an incremental dependency bootstrap model so new contributors can configure builds consistently before full third-party integration is complete.
+Statement 3 integrates **SDL3** as the first runtime dependency. SDL3 is used for desktop platform services but is intentionally hidden behind engine-owned APIs under `engine/platform/`.
 
-## Current Phase
+## Resolution order
 
-- No major runtime dependencies are fully integrated yet (for example SDL3/bgfx are intentionally not wired in this statement).
-- `cmake/Dependencies.cmake` provides extension points and cache variables for future dependency registration.
+`cmake/Dependencies.cmake` resolves SDL3 in this order:
 
-## Supported Dependency Sources (design)
+1. **Explicit override path**: `RENDER_SDL3_ROOT`
+2. **Vendored source**: `${RENDER_DEPENDENCY_ROOT}/SDL3` (default `third_party/SDL3`)
+3. **System package**: `find_package(SDL3 CONFIG)`
+4. **FetchContent fallback** (if `RENDER_ALLOW_FETCHCONTENT=ON`): pulls SDL from the official GitHub repo
 
-The intended resolution order is:
+If SDL3 cannot be resolved, configure fails with an actionable error.
 
-1. **Explicit local override paths**
-   - Set through cache variables (often from user presets):
-     - `RENDER_SDL3_ROOT`
-     - `RENDER_BGFX_ROOT`
-2. **Vendored source trees**
-   - Conventional location: `third_party/<name>`
-   - Global root override: `RENDER_DEPENDENCY_ROOT`
-3. **Optional FetchContent fallback**
-   - Controlled by `RENDER_ALLOW_FETCHCONTENT`
-   - Mechanism is scaffolded; concrete dependency fetch rules will be added in later statements.
+## Notes
 
-## Why this approach
-
-- Keeps the initial build deterministic and simple.
-- Supports both enterprise/offline and open-source workflows.
-- Avoids a redesign when real dependencies are introduced.
-
-## Contributor Workflow (today)
-
-1. Clone the repository.
-2. Run `scripts/bootstrap.sh` (macOS/Linux) or `scripts/bootstrap.ps1` (Windows).
-3. Configure using one of the standard presets from `CMakePresets.json`.
-4. Optionally create a local `CMakeUserPresets.json` from `CMakeUserPresets.json.example` and set machine-specific dependency overrides.
-
-## Planned follow-up work
-
-- Add concrete SDL3 and bgfx registration logic in `cmake/Dependencies.cmake`.
-- Decide per-library policy (submodule vs FetchContent vs system package).
-- Add lock/version strategy for reproducible third-party revisions.
+- `bgfx` is still scaffolded only (not integrated yet).
+- SDL usage should stay in `engine/platform/sdl/*`.
+- Higher-level engine/game modules should depend on `render::platform` / `render::engine`, not SDL directly.

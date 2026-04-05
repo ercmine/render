@@ -1,36 +1,27 @@
-# Planned Architecture
+# Architecture Snapshot (Statement 3)
 
-This document outlines the intended architectural direction for `render`.
+## Runtime layering now implemented
 
-## Design Goals
+1. **Platform layer (`engine/platform`)**
+   - Engine-owned runtime API (`PlatformRuntime`) and data types (`platform_types.hpp`).
+   - SDL3-backed implementation isolated to `engine/platform/sdl/platform_runtime_sdl.cpp`.
+2. **Engine layer (`render::engine`)**
+   - Depends on platform abstraction only.
+3. **Shell app (`render_shell`)**
+   - Minimal runnable loop that initializes runtime, pumps events, updates timing/input, and exits on close.
 
-- Desktop-first custom 3D engine and game stack.
-- Strong module boundaries between engine, game, and tooling.
-- Data-driven and procedural workflows for content generation.
-- Long-term maintainability through clear ownership and layering.
+## Platform responsibilities currently covered
 
-## Planned Layering
+- Startup/shutdown lifecycle
+- Window create + lifecycle events
+- Event pump
+- Keyboard + mouse input state tracking (down/pressed/released, text input, mouse wheel)
+- Gamepad connect/disconnect + state updates
+- Timing (frame delta + monotonic counters)
+- Path queries (base/pref/temp)
+- Audio bootstrap with default playback stream and sample queue plumbing
 
-1. **Platform/Core Layer (`engine/platform`, `engine/core`)**
-   - OS abstraction, lifecycle, memory/runtime services, and foundational utilities.
-2. **Engine Systems Layer (`engine/render`, `engine/scene`, `engine/math`, `engine/procgen`, `engine/ui`)**
-   - Rendering architecture, world/scene representation, math primitives, procedural generation support, and UI runtime support.
-3. **Game Layer (`game/*`)**
-   - Product-specific systems (colony simulation, entities, economy, market, progression, and persistence).
-4. **Tooling Layer (`tools/*`)**
-   - Pipeline and debugging tools that support authoring, validation, and iteration speed.
-5. **Content Input Layer (`shaders/*`, `assets_recipes/*`)**
-   - Shader source trees and recipe-driven data that feed runtime or build-time generation workflows.
-6. **Verification Layer (`tests/*`)**
-   - Unit and integration tests validating contracts across layers.
+## Boundary rule
 
-## Dependency Direction (Planned)
-
-- Engine modules should remain reusable and game-agnostic.
-- Game modules may depend on engine modules, not vice versa.
-- Tools may depend on both engine and game representations when needed, but coupling should be explicit.
-- Third-party code will be isolated under `third_party/` when introduced.
-
-## Current State
-
-This repository currently contains scaffolding only. Implementation details, build orchestration, and dependency integration are intentionally deferred.
+SDL headers/functions are allowed in `engine/platform/sdl/*` only.
+All other modules must consume the engine-owned platform interfaces and types.
