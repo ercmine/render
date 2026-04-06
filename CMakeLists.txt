@@ -137,6 +137,17 @@ render_apply_project_options(render_renderer)
 render_apply_warnings(render_renderer)
 
 
+
+add_library(render_procgen STATIC
+  engine/procgen/procgen.hpp
+  engine/procgen/procgen.cpp
+)
+add_library(render::procgen ALIAS render_procgen)
+target_include_directories(render_procgen PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(render_procgen PUBLIC render::core render::renderer)
+render_apply_project_options(render_procgen)
+render_apply_warnings(render_procgen)
+
 add_library(render_scene STATIC
   engine/scene/scene.hpp
   engine/scene/scene.cpp
@@ -151,7 +162,7 @@ add_library(render_engine STATIC
   engine/engine.cpp
 )
 add_library(render::engine ALIAS render_engine)
-target_link_libraries(render_engine PUBLIC render::core render::filesystem render::platform render::renderer render::serialization render::scene)
+target_link_libraries(render_engine PUBLIC render::core render::filesystem render::platform render::renderer render::serialization render::scene render::procgen)
 render_apply_project_options(render_engine)
 render_apply_warnings(render_engine)
 
@@ -236,6 +247,11 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_render_pass_system_tests)
   render_apply_warnings(render_render_pass_system_tests)
 
+  add_executable(render_procgen_tests tests/procgen/procgen_tests.cpp)
+  target_link_libraries(render_procgen_tests PRIVATE render::procgen)
+  render_apply_project_options(render_procgen_tests)
+  render_apply_warnings(render_procgen_tests)
+
   add_executable(render_scene_tests tests/scene/scene_tests.cpp)
   target_link_libraries(render_scene_tests PRIVATE render::scene)
   render_apply_project_options(render_scene_tests)
@@ -266,6 +282,8 @@ if(RENDER_BUILD_TESTS)
   set_tests_properties(unit.renderer.debug_views PROPERTIES LABELS "unit;renderer;debug")
   add_test(NAME unit.renderer.render_pass_system COMMAND render_render_pass_system_tests)
   set_tests_properties(unit.renderer.render_pass_system PROPERTIES LABELS "unit;renderer;graph")
+  add_test(NAME unit.procgen.mesh_toolkit COMMAND render_procgen_tests)
+  set_tests_properties(unit.procgen.mesh_toolkit PROPERTIES LABELS "unit;procgen")
   add_test(NAME unit.scene.runtime COMMAND render_scene_tests)
   set_tests_properties(unit.scene.runtime PROPERTIES LABELS "unit;scene")
   add_test(NAME unit.renderer.vfx_system COMMAND render_vfx_system_tests)
@@ -275,7 +293,7 @@ if(RENDER_BUILD_TESTS)
 
   add_custom_target(render_test_unit
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex unit
-    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests render_geometry_submission_tests render_lighting_pipeline_tests render_debug_renderer_tests render_scene_tests render_vfx_system_tests
+    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests render_geometry_submission_tests render_lighting_pipeline_tests render_debug_renderer_tests render_procgen_tests render_scene_tests render_vfx_system_tests
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "Running render unit tests"
   )

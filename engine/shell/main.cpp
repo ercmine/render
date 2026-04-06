@@ -1,6 +1,7 @@
 #include "engine/filesystem/filesystem.hpp"
 #include "engine/platform/platform_log.hpp"
 #include "engine/platform/platform_runtime.hpp"
+#include "engine/procgen/procgen.hpp"
 #include "engine/render/draw_submission.hpp"
 #include "engine/render/lighting.hpp"
 #include "engine/render/renderer.hpp"
@@ -17,16 +18,10 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
-
-struct PosColorVertex {
-  float x;
-  float y;
-  float z;
-  std::uint32_t abgr;
-};
 
 render::rendering::RendererBackend parse_renderer_backend_from_args(const int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {
@@ -100,26 +95,21 @@ int main(int argc, char** argv) {
   renderer_config.debug = true;
   if (!renderer.initialize(renderer_config, runtime)) return 1;
 
-  const std::vector<PosColorVertex> vertices = {
-    {-0.5F, -0.5F, 0.0F, 0xff4040ff}, {0.5F, -0.5F, 0.0F, 0xff40ff40}, {0.0F, 0.5F, 0.0F, 0xffff4040}};
-  const std::vector<std::uint16_t> indices = {0, 1, 2};
+  auto upload_cpu_mesh = [&](const render::rendering::CpuMeshData& cpu_mesh) {
+    render::rendering::MeshBufferDescription mesh_desc{};
+    mesh_desc.layout = cpu_mesh.layout;
+    mesh_desc.data = std::span<const std::byte>{cpu_mesh.vertex_data.data(), cpu_mesh.vertex_data.size()};
+    mesh_desc.vertex_count = cpu_mesh.vertex_count;
+    mesh_desc.usage = render::rendering::BufferUsage::Immutable;
 
-  render::rendering::MeshBufferDescription mesh_desc{};
-  mesh_desc.layout.stride = static_cast<std::uint16_t>(sizeof(PosColorVertex));
-  mesh_desc.layout.elements = {
-    {render::rendering::VertexAttribute::Position, 0, 3, render::rendering::AttributeType::Float, false, false},
-    {render::rendering::VertexAttribute::Color0, 12, 4, render::rendering::AttributeType::Uint8, true, false},
+    render::rendering::IndexBufferDescription index_desc{};
+    index_desc.data = std::span<const std::byte>{cpu_mesh.index_data.data(), cpu_mesh.index_data.size()};
+    index_desc.index_count = cpu_mesh.index_count;
+    index_desc.index_type = cpu_mesh.index_type;
+    index_desc.usage = render::rendering::BufferUsage::Immutable;
+
+    return std::pair{renderer.create_mesh_buffer(mesh_desc), renderer.create_index_buffer(index_desc)};
   };
-  mesh_desc.data = std::as_bytes(std::span{vertices});
-  mesh_desc.vertex_count = static_cast<std::uint32_t>(vertices.size());
-  mesh_desc.usage = render::rendering::BufferUsage::Immutable;
-
-  render::rendering::IndexBufferDescription index_desc{};
-  index_desc.data = std::as_bytes(std::span{indices});
-  index_desc.index_count = static_cast<std::uint32_t>(indices.size());
-
-  const auto mesh_buffer = renderer.create_mesh_buffer(mesh_desc);
-  const auto index_buffer = renderer.create_index_buffer(index_desc);
 
   render::rendering::ShaderProgramLibrary shader_library{renderer, filesystem};
   const render::rendering::ShaderProgramId shader_id{.category = "debug", .name = "debug_triangle", .variant = "default"};
@@ -169,28 +159,59 @@ int main(int argc, char** argv) {
   sun.casts_shadows = true;
   scene.set_light(sun_node, sun);
 
-  constexpr std::uint32_t kInstanceRows = 12;
-  std::vector<render::scene::SceneNodeId> nodes;
-  nodes.reserve(kInstanceRows * kInstanceRows);
-  for (std::uint32_t y = 0; y < kInstanceRows; ++y) {
-    for (std::uint32_t x = 0; x < kInstanceRows; ++x) {
-      const auto node = scene.create_node("tri_instance");
-      scene.set_parent(node, root, render::scene::ReparentPolicy::KeepLocalTransform);
-      render::core::Transform t{};
-      t.translation = {static_cast<float>(x) - 6.0F, static_cast<float>(y) - 6.0F, 0.0F};
-      t.scale = {0.15F, 0.15F, 0.15F};
-      scene.set_local_transform(node, t);
-      render::scene::RenderableComponent rc{};
-      rc.mesh_buffer = mesh_buffer;
-      rc.index_buffer = index_buffer;
-      rc.index_count = static_cast<std::uint32_t>(indices.size());
-      rc.material.program = program;
-      rc.highlighted = (x == kInstanceRows / 2U && y == kInstanceRows / 2U);
-      rc.emissive_color = {0.1F, 0.4F, 1.0F};
-      rc.emissive_intensity = (x + y) % 5U == 0U ? 2.0F : 0.0F;
-      scene.set_renderable(node, rc);
-      nodes.push_back(node);
-    }
+  const auto primitive_mesh = render::procgen::make_box({0.9F, 0.9F, 0.9F}, 1);
+
+  render::procgen::SplinePath extrude_path{};
+  extrude_path.control_points = {{-0.6F, 0.0F, 0.0F}, {-0.2F, 0.5F, 0.3F}, {0.3F, -0.2F, 0.8F}, {0.7F, 0.3F, 1.4F}};
+  std::array<render::core::Vec2, 8> extrude_profile{};
+  for (std::size_t i = 0; i < extrude_profile.size(); ++i) {
+    const float a = static_cast<float>(i) / static_cast<float>(extrude_profile.size()) * render::core::kTwoPi;
+    extrude_profile[i] = {std::cos(a) * 0.15F, std::sin(a) * 0.15F};
+  }
+  const auto extruded_mesh = render::procgen::extrude_profile_along_path(
+    extrude_profile, extrude_path, render::procgen::ExtrudeOptions{.path_samples = 24, .cap_ends = true, .closed_profile = true});
+
+  std::array<render::core::Vec2, 5> lathe_profile{{{0.0F, -0.45F}, {0.25F, -0.35F}, {0.3F, 0.0F}, {0.15F, 0.45F}, {0.0F, 0.55F}}};
+  const auto lathed_mesh = render::procgen::lathe_profile(lathe_profile, {.radial_segments = 28, .angle_radians = render::core::kTwoPi});
+
+  render::procgen::SegmentDescriptor seg{};
+  seg.mesh = render::procgen::make_cylinder(0.12F, 0.65F, 16, 1, true);
+  seg.local_from_prev.translation = {0.0F, 0.48F, 0.0F};
+  seg.yaw_jitter_radians = 0.4F;
+  seg.scale_jitter = 0.15F;
+  std::array<render::procgen::SegmentDescriptor, 6> seg_chain{seg, seg, seg, seg, seg, seg};
+  const auto segmented_mesh = render::procgen::assemble_segments(seg_chain, {.seed = render::core::Seed::from_string("shell-segment-demo")});
+
+  auto blob_sdf = render::procgen::sdf_smooth_union(render::procgen::sdf_sphere({0.0F, 0.0F, 0.0F}, 0.55F),
+                                                    render::procgen::sdf_sphere({0.32F, 0.1F, 0.08F}, 0.36F), 0.2F);
+  blob_sdf = render::procgen::sdf_union(blob_sdf, render::procgen::sdf_cylinder({0.0F, -0.45F, 0.0F}, 0.12F, 0.25F));
+  render::procgen::ScalarField blob_field(28, 28, 28, 0.06F, {-0.9F, -0.9F, -0.9F});
+  render::procgen::rasterize_sdf_to_field(blob_sdf, blob_field);
+  const auto sdf_mesh = render::procgen::extract_isosurface(blob_field, 0.0F);
+
+  const std::array demo_meshes{primitive_mesh, extruded_mesh, lathed_mesh, segmented_mesh, sdf_mesh};
+  const std::array<render::core::Vec3, 5> demo_positions{{{-2.8F, -0.7F, 0.0F}, {-1.2F, -1.0F, -0.6F}, {0.2F, -0.8F, 0.0F}, {1.9F, -1.2F, -0.4F}, {3.4F, -0.9F, 0.0F}}};
+  std::vector<std::pair<render::rendering::MeshBufferHandle, render::rendering::IndexBufferHandle>> demo_gpu_meshes{};
+  demo_gpu_meshes.reserve(demo_meshes.size());
+
+  for (std::size_t idx = 0; idx < demo_meshes.size(); ++idx) {
+    const auto [mesh_buffer, index_buffer] = upload_cpu_mesh(demo_meshes[idx]);
+    demo_gpu_meshes.emplace_back(mesh_buffer, index_buffer);
+    const auto node = scene.create_node("proc_mesh_demo");
+    scene.set_parent(node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+    render::core::Transform t{};
+    t.translation = demo_positions[idx];
+    scene.set_local_transform(node, t);
+
+    render::scene::RenderableComponent rc{};
+    rc.mesh_buffer = mesh_buffer;
+    rc.index_buffer = index_buffer;
+    rc.index_count = demo_meshes[idx].index_count;
+    rc.material.program = program;
+    rc.highlighted = (idx == demo_meshes.size() - 1U);
+    rc.emissive_color = {0.15F, 0.5F, 1.0F};
+    rc.emissive_intensity = (idx == 4U) ? 1.2F : 0.0F;
+    scene.set_renderable(node, rc);
   }
 
   for (std::uint32_t i = 0; i < 10U; ++i) {
@@ -564,8 +585,10 @@ int main(int argc, char** argv) {
   renderer.destroy_program(debug_albedo);
   renderer.destroy_program(debug_depth);
   renderer.destroy_program(debug_overdraw);
-  renderer.destroy_buffer(mesh_buffer);
-  renderer.destroy_buffer(index_buffer);
+  for (const auto& handles : demo_gpu_meshes) {
+    renderer.destroy_buffer(handles.first);
+    renderer.destroy_buffer(handles.second);
+  }
   renderer.shutdown();
   runtime.shutdown();
   return 0;
