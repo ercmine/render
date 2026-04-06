@@ -1,4 +1,4 @@
-# Architecture Snapshot (Statements 5-11)
+# Architecture Snapshot (Statements 5-17)
 
 ## Runtime layering now implemented
 
@@ -40,3 +40,10 @@
    - Engine-owned scene graph with stable node handles, transform hierarchy, visibility, and debug names.
    - Optional camera/light/renderable attachments with traversal and renderer extraction helpers.
    - Explicit update step for dirty world transform propagation (`Scene::update_world_transforms`).
+
+
+7. **Procedural mesh toolkit (`engine/procgen`)**
+   - Engine-owned deterministic mesh generation APIs outputting `render::rendering::CpuMeshData`.
+   - Primitives, spline sampling/extrusion, lathe/revolve, segment assembly, scalar fields, SDF composition, and local surface extraction.
+   - Mesh validation/stats and post-processing helpers for combining/transforms/re-normals/degenerate cleanup.
+   - Runtime shell now demonstrates representative generated meshes using the normal renderer submission path.
