@@ -45,4 +45,4 @@ This repository is organized to separate runtime, game logic, content pipelines,
 
 ## Notes
 
-Layout is incrementally populated by statements. Platform + renderer foundations are now active under `engine/platform` and `engine/render`.
+Layout is incrementally populated by statements. Core runtime foundations are active under `engine/core`, with platform and renderer layers under `engine/platform` and `engine/render`.

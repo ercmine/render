@@ -26,6 +26,39 @@ render_setup_dependencies()
 render_setup_versioning()
 render_setup_shader_compilation()
 
+add_library(render_core STATIC
+  engine/core/types.hpp
+  engine/core/math.hpp
+  engine/core/math.cpp
+  engine/core/transform.hpp
+  engine/core/transform.cpp
+  engine/core/color.hpp
+  engine/core/color.cpp
+  engine/core/camera.hpp
+  engine/core/camera.cpp
+  engine/core/uuid.hpp
+  engine/core/uuid.cpp
+  engine/core/hash.hpp
+  engine/core/hash.cpp
+  engine/core/random.hpp
+  engine/core/random.cpp
+  engine/core/memory.hpp
+  engine/core/memory.cpp
+  engine/core/threading.hpp
+  engine/core/threading.cpp
+  engine/core/log.hpp
+  engine/core/log.cpp
+  engine/core/assert.hpp
+  engine/core/assert.cpp
+  engine/core/profiling.hpp
+  engine/core/profiling.cpp
+  engine/core/core.hpp
+)
+add_library(render::core ALIAS render_core)
+target_include_directories(render_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+render_apply_project_options(render_core)
+render_apply_warnings(render_core)
+
 add_library(render_platform STATIC
   engine/platform/platform_types.hpp
   engine/platform/platform_runtime.hpp
@@ -34,7 +67,7 @@ add_library(render_platform STATIC
 )
 add_library(render::platform ALIAS render_platform)
 target_include_directories(render_platform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(render_platform PUBLIC render::dependencies)
+target_link_libraries(render_platform PUBLIC render::core render::dependencies)
 render_apply_project_options(render_platform)
 render_apply_warnings(render_platform)
 
@@ -48,7 +81,7 @@ add_library(render_renderer STATIC
 )
 add_library(render::renderer ALIAS render_renderer)
 target_include_directories(render_renderer PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(render_renderer PUBLIC render::platform render::dependencies)
+target_link_libraries(render_renderer PUBLIC render::core render::platform render::dependencies)
 render_apply_project_options(render_renderer)
 render_apply_warnings(render_renderer)
 
@@ -56,7 +89,7 @@ add_library(render_engine STATIC
   engine/engine.cpp
 )
 add_library(render::engine ALIAS render_engine)
-target_link_libraries(render_engine PUBLIC render::platform render::renderer)
+target_link_libraries(render_engine PUBLIC render::core render::platform render::renderer)
 render_apply_project_options(render_engine)
 render_apply_warnings(render_engine)
 
@@ -90,7 +123,14 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_platform_types_tests)
   render_apply_warnings(render_platform_types_tests)
 
+  add_executable(render_core_runtime_tests tests/core/core_runtime_tests.cpp)
+  target_link_libraries(render_core_runtime_tests PRIVATE render::core)
+  target_compile_definitions(render_core_runtime_tests PRIVATE RENDER_ENABLE_PROFILING=1)
+  render_apply_project_options(render_core_runtime_tests)
+  render_apply_warnings(render_core_runtime_tests)
+
   add_test(NAME render_platform_types_tests COMMAND render_platform_types_tests)
+  add_test(NAME render_core_runtime_tests COMMAND render_core_runtime_tests)
 endif()
 
 message(STATUS "Configured ${PROJECT_NAME} ${PROJECT_VERSION} for ${CMAKE_SYSTEM_NAME}")

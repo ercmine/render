@@ -1,0 +1,15 @@
+#pragma once
+
+#include "engine/core/assert.hpp"
+#include "engine/core/camera.hpp"
+#include "engine/core/color.hpp"
+#include "engine/core/hash.hpp"
+#include "engine/core/log.hpp"
+#include "engine/core/math.hpp"
+#include "engine/core/memory.hpp"
+#include "engine/core/profiling.hpp"
+#include "engine/core/random.hpp"
+#include "engine/core/threading.hpp"
+#include "engine/core/transform.hpp"
+#include "engine/core/types.hpp"
+#include "engine/core/uuid.hpp"
