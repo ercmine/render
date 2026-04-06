@@ -4,6 +4,7 @@
 #include "engine/render/draw_submission.hpp"
 #include "engine/render/lighting.hpp"
 #include "engine/render/renderer.hpp"
+#include "engine/render/render_pass_system.hpp"
 #include "engine/render/shader_library.hpp"
 #include "engine/render/vfx.hpp"
 #include "engine/scene/scene.hpp"
@@ -244,6 +245,9 @@ int main(int argc, char** argv) {
     scene.set_vfx_attachment(market_node, {.effect_handle = handle.value});
   }
 
+  render::rendering::RenderPassRegistry pass_registry;
+  bool logged_graph = false;
+
   while (!runtime.should_quit()) {
     runtime.begin_frame();
     runtime.pump_events();
@@ -285,10 +289,20 @@ int main(int argc, char** argv) {
       }
     }
 
-    std::vector<render::rendering::DrawSubmission> submissions;
+    struct ShellFrameState {
+      std::vector<render::rendering::DrawSubmission> submissions{};
+      std::vector<render::rendering::DirectionalLightInput> directional_lights{};
+      std::vector<render::rendering::PointLightInput> point_lights{};
+      std::vector<render::rendering::RenderableLightingInput> lit_inputs{};
+      render::rendering::LightingFrameData lighting_frame{};
+      render::rendering::SubmissionDiagnostics submission_diagnostics{};
+      render::rendering::vfx::EffectDiagnostics vfx_diagnostics{};
+      bool built_lighting_frame{false};
+    } frame_state;
+
     const auto visible = scene.collect_visible_renderables();
     const auto visible_lights = scene.collect_visible_lights();
-    submissions.reserve(visible.size());
+    frame_state.submissions.reserve(visible.size());
     for (const auto& vr : visible) {
       if (vr.renderable == nullptr || vr.world_transform == nullptr || !vr.renderable->material.valid()) continue;
       const auto world = to_array(vr.world_transform->to_matrix());
@@ -301,25 +315,23 @@ int main(int argc, char** argv) {
       draw.draw_state = vr.renderable->draw_state;
       draw.transform = world;
       draw.sort_key = static_cast<std::uint32_t>(vr.node.index);
-      submissions.push_back(draw);
+      frame_state.submissions.push_back(draw);
     }
 
-    std::vector<render::rendering::DirectionalLightInput> directional_lights;
-    std::vector<render::rendering::PointLightInput> point_lights;
     for (const auto& visible_light : visible_lights) {
       if (visible_light.light == nullptr || visible_light.world_transform == nullptr) {
         continue;
       }
       if (visible_light.light->type == render::scene::LightType::Directional) {
         const render::core::Vec3 direction = render::core::forward(*visible_light.world_transform) * -1.0F;
-        directional_lights.push_back(render::rendering::DirectionalLightInput{
+        frame_state.directional_lights.push_back(render::rendering::DirectionalLightInput{
           .direction = direction,
           .color = visible_light.light->color,
           .intensity = visible_light.light->intensity,
           .casts_shadows = visible_light.light->casts_shadows,
         });
       } else {
-        point_lights.push_back(render::rendering::PointLightInput{
+        frame_state.point_lights.push_back(render::rendering::PointLightInput{
           .position = visible_light.world_transform->translation,
           .color = visible_light.light->color,
           .intensity = visible_light.light->intensity,
@@ -329,13 +341,12 @@ int main(int argc, char** argv) {
       }
     }
 
-    std::vector<render::rendering::RenderableLightingInput> lit_inputs;
-    lit_inputs.reserve(visible.size());
+    frame_state.lit_inputs.reserve(visible.size());
     for (const auto& vr : visible) {
       if (vr.world_transform == nullptr || vr.renderable == nullptr) {
         continue;
       }
-      lit_inputs.push_back(render::rendering::RenderableLightingInput{
+      frame_state.lit_inputs.push_back(render::rendering::RenderableLightingInput{
         .object_id = vr.node.index,
         .position = vr.world_transform->translation,
         .bounding_radius = 1.0F,
@@ -355,73 +366,192 @@ int main(int argc, char** argv) {
     bloom.threshold = scene.lighting_settings().bloom.threshold;
     bloom.intensity = scene.lighting_settings().bloom.intensity;
 
-    const auto shadow_start = std::chrono::steady_clock::now();
-    const render::rendering::LightingFrameData lighting_frame = render::rendering::build_forward_plus_frame_data(
-      camera_position,
-      directional_lights,
-      point_lights,
-      lit_inputs,
-      {},
-      fog,
-      bloom,
-      {},
-      {});
-    const auto shadow_end = std::chrono::steady_clock::now();
-    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{
-      .pass_name = "shadow-pass(plan)",
-      .cpu_ms = static_cast<float>(std::chrono::duration<double, std::milli>(shadow_end - shadow_start).count()),
-      .gpu_ms = std::nullopt,
-    });
-    (void)lighting_frame;
+    pass_registry.reset();
+    std::string graph_error;
+    pass_registry.declare_resource({.name = "shadow_map", .kind = render::rendering::RenderResourceKind::ShadowMap, .width = 2048, .height = 2048, .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "scene_color", .kind = render::rendering::RenderResourceKind::RenderTarget, .width = static_cast<std::uint16_t>(window.width), .height = static_cast<std::uint16_t>(window.height), .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "bloom_extract", .kind = render::rendering::RenderResourceKind::PostProcessTexture, .width = static_cast<std::uint16_t>(window.width / 2U), .height = static_cast<std::uint16_t>(window.height / 2U), .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "bloom_blur", .kind = render::rendering::RenderResourceKind::PostProcessTexture, .width = static_cast<std::uint16_t>(window.width / 2U), .height = static_cast<std::uint16_t>(window.height / 2U), .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "post_color", .kind = render::rendering::RenderResourceKind::PostProcessTexture, .width = static_cast<std::uint16_t>(window.width), .height = static_cast<std::uint16_t>(window.height), .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "outline_mask", .kind = render::rendering::RenderResourceKind::PostProcessTexture, .width = static_cast<std::uint16_t>(window.width), .height = static_cast<std::uint16_t>(window.height), .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "ui_overlay", .kind = render::rendering::RenderResourceKind::UiTarget, .width = static_cast<std::uint16_t>(window.width), .height = static_cast<std::uint16_t>(window.height), .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "debug_overlay", .kind = render::rendering::RenderResourceKind::UiTarget, .width = static_cast<std::uint16_t>(window.width), .height = static_cast<std::uint16_t>(window.height), .transient = true, .imported = false}, &graph_error);
+    pass_registry.declare_resource({.name = "backbuffer", .kind = render::rendering::RenderResourceKind::Backbuffer, .width = static_cast<std::uint16_t>(window.width), .height = static_cast<std::uint16_t>(window.height), .transient = false, .imported = true}, &graph_error);
 
-    const auto main_pass_start = std::chrono::steady_clock::now();
-    render::rendering::SubmissionDiagnostics diagnostics{};
-    const auto batches = render::rendering::build_draw_batches(submissions, {}, &diagnostics);
-    for (const auto& batch : batches) {
-      if (batch.mode == render::rendering::SubmissionMode::Instanced) {
-        render::rendering::DrawSubmission base{};
-        base.view = kMainView;
-        base.mesh = batch.mesh;
-        base.material = batch.material;
-        base.draw_state = batch.draw_state;
-        base.transform = {};
-        renderer.submit_instanced(kMainView, base, std::span<const float>{batch.transforms});
-      } else if (!batch.unique_draws.empty()) {
-        renderer.submit(kMainView, batch.unique_draws.front());
-      }
-    }
-    const auto vfx_pass_start = std::chrono::steady_clock::now();
-    auto vfx_submissions = vfx_system.build_frame_submissions(kMainView);
-    for (const auto& vfx : vfx_submissions) {
-      renderer.submit_instanced(kMainView, vfx.draw, std::span<const float>{vfx.transforms});
-    }
-    const auto vfx_pass_end = std::chrono::steady_clock::now();
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "shadow-pass",
+      .depends_on = {},
+      .resources = {{.resource = "shadow_map", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true}},
+      .execute = [&](const render::rendering::RenderPassExecutionContext&) {
+        frame_state.lighting_frame = render::rendering::build_forward_plus_frame_data(
+          camera_position,
+          frame_state.directional_lights,
+          frame_state.point_lights,
+          frame_state.lit_inputs,
+          {},
+          fog,
+          bloom,
+          {},
+          {});
+        frame_state.built_lighting_frame = true;
+      },
+      .enabled = {},
+    }, &graph_error);
 
-    const auto main_pass_end = std::chrono::steady_clock::now();
-    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{
-      .pass_name = "main-lit-pass",
-      .cpu_ms = static_cast<float>(std::chrono::duration<double, std::milli>(main_pass_end - main_pass_start).count()),
-      .gpu_ms = std::nullopt,
-    });
-    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{
-      .pass_name = "vfx-ambient-pass",
-      .cpu_ms = static_cast<float>(std::chrono::duration<double, std::milli>(vfx_pass_end - vfx_pass_start).count()),
-      .gpu_ms = std::nullopt,
-    });
-    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{.pass_name = "bloom-pass(plan)", .cpu_ms = 0.0F, .gpu_ms = std::nullopt});
-    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{.pass_name = "outline-pass(plan)", .cpu_ms = 0.0F, .gpu_ms = std::nullopt});
-    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{.pass_name = "composite-present", .cpu_ms = 0.0F, .gpu_ms = std::nullopt});
-    renderer.set_debug_counters(render::rendering::RendererDebugCounters{
-      .visible_directional_lights = static_cast<std::uint32_t>(directional_lights.size()),
-      .visible_point_lights = static_cast<std::uint32_t>(point_lights.size()),
-      .submitted_draws = diagnostics.submitted_draws,
-      .instanced_draws = diagnostics.instanced_draws,
-      .submitted_instances = diagnostics.submitted_instances,
-      .vfx_active_effects = vfx_system.diagnostics().total_active_effects,
-      .vfx_active_particles = vfx_system.diagnostics().total_active_particles,
-      .vfx_draw_calls = vfx_system.diagnostics().draw_calls,
-      .vfx_instance_uploads = vfx_system.diagnostics().uploaded_instances,
-    });
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "main-lit-pass",
+      .depends_on = {"shadow-pass"},
+      .resources = {
+        {.resource = "shadow_map", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "scene_color", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true},
+      },
+      .execute = [&](const render::rendering::RenderPassExecutionContext&) {
+        frame_state.submission_diagnostics = {};
+        const auto batches = render::rendering::build_draw_batches(frame_state.submissions, {}, &frame_state.submission_diagnostics);
+        for (const auto& batch : batches) {
+          if (batch.mode == render::rendering::SubmissionMode::Instanced) {
+            render::rendering::DrawSubmission base{};
+            base.view = kMainView;
+            base.mesh = batch.mesh;
+            base.material = batch.material;
+            base.draw_state = batch.draw_state;
+            base.transform = {};
+            renderer.submit_instanced(kMainView, base, std::span<const float>{batch.transforms});
+          } else if (!batch.unique_draws.empty()) {
+            renderer.submit(kMainView, batch.unique_draws.front());
+          }
+        }
+
+        auto vfx_submissions = vfx_system.build_frame_submissions(kMainView);
+        for (const auto& vfx : vfx_submissions) {
+          renderer.submit_instanced(kMainView, vfx.draw, std::span<const float>{vfx.transforms});
+        }
+        frame_state.vfx_diagnostics = vfx_system.diagnostics();
+      },
+      .enabled = {},
+    }, &graph_error);
+
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "bloom-extract-pass",
+      .depends_on = {"main-lit-pass"},
+      .resources = {
+        {.resource = "scene_color", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "bloom_extract", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true},
+      },
+      .execute = [](const render::rendering::RenderPassExecutionContext&) {},
+      .enabled = [bloom](const render::rendering::RenderPassExecutionContext&) { return bloom.enabled; },
+    }, &graph_error);
+
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "bloom-blur-pass",
+      .depends_on = {"bloom-extract-pass"},
+      .resources = {
+        {.resource = "bloom_extract", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "bloom_blur", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true},
+      },
+      .execute = [](const render::rendering::RenderPassExecutionContext&) {},
+      .enabled = [bloom](const render::rendering::RenderPassExecutionContext&) { return bloom.enabled; },
+    }, &graph_error);
+
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "bloom-composite-pass",
+      .depends_on = {"main-lit-pass", "bloom-blur-pass"},
+      .resources = {
+        {.resource = "scene_color", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "bloom_blur", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "post_color", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true},
+      },
+      .execute = [](const render::rendering::RenderPassExecutionContext&) {},
+      .enabled = {},
+    }, &graph_error);
+
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "outline-pass",
+      .depends_on = {"main-lit-pass"},
+      .resources = {
+        {.resource = "scene_color", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "outline_mask", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true},
+      },
+      .execute = [](const render::rendering::RenderPassExecutionContext&) {},
+      .enabled = {},
+    }, &graph_error);
+
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "ui-pass",
+      .depends_on = {"bloom-composite-pass", "outline-pass"},
+      .resources = {
+        {.resource = "post_color", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "ui_overlay", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true},
+      },
+      .execute = [](const render::rendering::RenderPassExecutionContext&) {},
+      .enabled = {},
+    }, &graph_error);
+
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "debug-pass",
+      .depends_on = {"ui-pass"},
+      .resources = {
+        {.resource = "post_color", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "outline_mask", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "ui_overlay", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "debug_overlay", .access = render::rendering::RenderResourceAccess::Write, .clear_before_use = true},
+      },
+      .execute = [&](const render::rendering::RenderPassExecutionContext&) {
+        renderer.set_debug_counters(render::rendering::RendererDebugCounters{
+          .visible_directional_lights = static_cast<std::uint32_t>(frame_state.directional_lights.size()),
+          .visible_point_lights = static_cast<std::uint32_t>(frame_state.point_lights.size()),
+          .submitted_draws = frame_state.submission_diagnostics.submitted_draws,
+          .instanced_draws = frame_state.submission_diagnostics.instanced_draws,
+          .submitted_instances = frame_state.submission_diagnostics.submitted_instances,
+          .vfx_active_effects = frame_state.vfx_diagnostics.total_active_effects,
+          .vfx_active_particles = frame_state.vfx_diagnostics.total_active_particles,
+          .vfx_draw_calls = frame_state.vfx_diagnostics.draw_calls,
+          .vfx_instance_uploads = frame_state.vfx_diagnostics.uploaded_instances,
+        });
+      },
+      .enabled = {},
+    }, &graph_error);
+
+    pass_registry.add_pass(render::rendering::RenderPassDefinition{
+      .name = "present-pass",
+      .depends_on = {"debug-pass"},
+      .resources = {
+        {.resource = "post_color", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "outline_mask", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "ui_overlay", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "debug_overlay", .access = render::rendering::RenderResourceAccess::Read},
+        {.resource = "backbuffer", .access = render::rendering::RenderResourceAccess::Write},
+      },
+      .execute = [](const render::rendering::RenderPassExecutionContext&) {},
+      .enabled = {},
+    }, &graph_error);
+
+    if (const auto build_result = pass_registry.build(); !build_result.ok) {
+      render::platform::log::error(std::string{"Render pass build failed: "} + build_result.error);
+      renderer.end_frame();
+      runtime.end_frame();
+      continue;
+    }
+
+    if (!logged_graph) {
+      render::platform::log::info(pass_registry.dump_graph());
+      logged_graph = true;
+    }
+
+    render::rendering::RenderPassExecutionContext pass_context{};
+    pass_context.frame = render::rendering::RenderFrameInfo{
+      .frame_index = renderer.status().frame.frame_count,
+      .backbuffer_width = static_cast<std::uint16_t>(window.width),
+      .backbuffer_height = static_cast<std::uint16_t>(window.height),
+      .delta_seconds = 1.0F / 60.0F,
+    };
+    pass_context.renderer = &renderer;
+    pass_context.registry = &pass_registry;
+    pass_context.user_data = &frame_state;
+
+    if (!pass_registry.execute(pass_context, &graph_error)) {
+      render::platform::log::error(std::string{"Render pass execute failed: "} + graph_error);
+    }
 
     renderer.end_frame();
     runtime.end_frame();

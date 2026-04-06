@@ -268,3 +268,56 @@ Highlights:
 - shader pipeline integration through `vfx/ambient_sprite` manifest entries and variants
 
 Detailed design and current limits are documented in `docs/vfx.md`.
+
+## Structured render pass system (Statement 16)
+
+Statement 16 adds a lightweight, engine-owned render graph under `engine/render/render_pass_system.*`.
+
+### Core model
+
+- `RenderPassRegistry` owns per-frame pass/resource declarations and orchestration.
+- `RenderPassDefinition` encodes pass name, dependencies, explicit resource usage, optional enable predicate, and execution callback.
+- `RenderResourceDesc` encodes frame resources (shadow map, scene color, bloom intermediates, UI/debug overlays, imported backbuffer).
+- `RenderPassExecutionContext` passes frame metadata, renderer access, registry access, and user payload pointer into pass execution.
+
+### Validation and ordering
+
+Build-time checks fail clearly for:
+
+- duplicate pass/resource names
+- missing pass dependencies
+- undeclared resource usage
+- resource write conflicts
+- reads with no producer (unless resource is imported)
+- dependency cycles
+
+Execution order is resolved by topological sorting over explicit `depends_on` edges plus inferred producer->consumer edges from resource reads.
+
+### Current shell frame layout
+
+`engine/shell/main.cpp` now assembles the frame through the pass system, with explicit passes:
+
+1. `shadow-pass`
+2. `main-lit-pass`
+3. `bloom-extract-pass`
+4. `bloom-blur-pass`
+5. `bloom-composite-pass`
+6. `outline-pass`
+7. `ui-pass`
+8. `debug-pass`
+9. `present-pass`
+
+This removes ad hoc scattered manual ordering and creates a single inspectable orchestration path.
+
+### Diagnostics
+
+- `RenderPassRegistry::dump_graph()` provides a textual pass/resource dump for logs.
+- `RenderPassDiagnostics` exposes execution order and active/inactive pass sets.
+- Pass execution integrates with renderer debug timing rows (`RendererPassTiming`) for per-pass CPU visibility.
+
+### Deferred follow-ups
+
+- physical render-target allocation/aliasing and transient memory optimization
+- backend GPU timer query integration for real GPU timings
+- richer pass-level debug UI (resource producers/consumers overlay)
+- optional pass plugin registration for editor/runtime extension modules

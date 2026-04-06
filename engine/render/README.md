@@ -89,3 +89,16 @@ Current debug view behavior:
 - category toggles (`VfxToggleMask`) for profiling and debug isolation
 
 Scene-level attachment is handled by `scene::VfxAttachmentComponent` (in `engine/scene`) so effects can follow node transforms without exposing backend-specific handles.
+
+## Structured render-pass orchestration (Statement 16)
+
+`render_pass_system.hpp/.cpp` introduces the canonical engine-owned pass orchestration layer.
+
+- Passes are first-class definitions (`RenderPassDefinition`) with a stable name, dependency list, explicit resource usage declarations, enable predicates, and execute hooks.
+- Frame resources are explicitly declared through `RenderResourceDesc` (`RenderTarget`, `DepthTarget`, `ShadowMap`, post-process textures, UI targets, and imported `Backbuffer`).
+- Build-time validation checks undeclared resources, missing dependencies, duplicate names, write conflicts, read-without-producer misuse, and dependency cycles.
+- Build step computes a deterministic execution order from explicit dependencies plus producer->consumer resource edges.
+- Runtime execution tracks active/inactive passes and emits pass timing rows through renderer debug timing hooks.
+- `dump_graph()` exposes a human-readable frame graph/resource layout for logs and inspection.
+
+This is intentionally a lightweight engine-owned render graph: explicit and extensible now, without introducing a heavyweight AAA framegraph scheduler.
