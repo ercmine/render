@@ -27,6 +27,7 @@ endif()
 set(stage_dir "${RENDER_PACKAGE_STAGE_DIR}")
 set(bin_dir "${stage_dir}/${RENDER_PACKAGE_BIN_SUBDIR}")
 set(shader_dir "${stage_dir}/${RENDER_PACKAGE_SHADER_RELATIVE_DIR}")
+set(shader_metadata_dir "${stage_dir}/shaders/metadata")
 
 if(WIN32)
   set(shell_name "render_shell.exe")
@@ -53,6 +54,20 @@ if(shader_count EQUAL 0)
   message(FATAL_ERROR "Packaging validation failed: no compiled shader binaries found in ${shader_dir}")
 endif()
 render_package_log("[ok] compiled shader count: ${shader_count}")
+
+if(NOT EXISTS "${shader_metadata_dir}")
+  message(FATAL_ERROR "Packaging validation failed: missing shader metadata directory ${shader_metadata_dir}")
+endif()
+render_package_log("[ok] shader metadata directory: ${shader_metadata_dir}")
+
+file(GLOB_RECURSE shader_metadata_files
+  "${shader_metadata_dir}/*.json"
+)
+list(LENGTH shader_metadata_files metadata_count)
+if(metadata_count EQUAL 0)
+  message(FATAL_ERROR "Packaging validation failed: no shader metadata files found in ${shader_metadata_dir}")
+endif()
+render_package_log("[ok] shader metadata count: ${metadata_count}")
 
 set(archive_base "${stage_dir}/../render-package")
 if(WIN32)

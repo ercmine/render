@@ -1,109 +1,84 @@
-# Renderer Runtime Lifecycle (Statement 9)
+# Rendering + Shader Pipeline (Statements 9-10)
 
 ## Scope
 
-Statement 9 hardens renderer runtime behavior around startup, backend selection, frame flow, resize handling, frame pacing, and recovery-oriented state management.
+- Statement 9: renderer lifecycle hardening (startup/frame/resize/recovery).
+- Statement 10: canonical shader source/build/runtime pipeline with variants, metadata, staging, and hot reload.
 
-## Lifecycle model
+## Engine-owned shader architecture
 
-`render::rendering::Renderer` now owns an explicit lifecycle state machine:
+The engine owns shader identity and runtime API through:
 
-- `Uninitialized`
-- `Initializing`
-- `Ready`
-- `Resizing`
-- `Recovering`
-- `ShuttingDown`
-- `Failed`
+- `ShaderProgramId { category, name, variant }`
+- `ShaderPipelineLayout` (runtime binary + metadata roots)
+- `ShaderProgramLibrary` (load + hot reload policy)
 
-The runtime shell and future systems can query:
+bgfx shader tools remain implementation detail in build scripts.
 
-- `state()`
-- `is_ready()`
-- `can_render()`
-- `status()` (`RendererStatus` snapshot including frame stats)
+## Shader source organization
 
-The renderer logs every lifecycle transition.
+See `shaders/README.md` for full conventions. High-level structure:
 
-## Startup and backend selection
+- `shaders/includes/` shared include files and varying definitions
+- `shaders/materials/` material-domain programs
+- `shaders/post/` post-processing programs
+- `shaders/debug/` debug visualization programs
+- `shaders/shaders.cmake` manifest of program entries and variants
 
-Startup is configuration-driven via `RendererConfig`:
+This organization is designed to scale without introducing a custom shader DSL.
 
-- `backend` (engine-owned enum, auto or explicit)
-- `width`, `height`
-- `debug`
-- `vsync`
-- `reset_flags` (engine-owned config mask)
-- `min_frame_time_ms` (lightweight frame pacing floor)
-- `allow_automatic_recovery`
+## Build graph integration
 
-Validation is explicit through `validate_renderer_config(...)`.
+CMake target flow:
 
-Backend behavior:
+- `render_shaders` compiles all manifest entries and emits reflection metadata.
+- `render_shader_check` depends on `render_shaders`.
+- `render_shell` depends on `render_shaders` (runtime always uses generated artifacts).
+- `render_package_stage` and `render_package_validate` include shader binaries and metadata.
 
-1. Engine backend enum maps to bgfx renderer type internally.
-2. Requested backend and actual backend are both logged.
-3. Explicit requests that are not selected log a warning and continue with the chosen backend.
+Primary knobs:
 
-## Frame lifecycle contract
+- `RENDER_BGFX_SHADERC`
+- `RENDER_SHADER_BACKENDS`
+- `RENDER_SHADER_OUTPUT_ROOT`
+- `RENDER_REQUIRE_SHADER_COMPILATION`
 
-Per-frame flow is now explicit and misuse-resistant:
+## Backend/platform output handling
 
-1. `begin_frame()`
-   - rejects invalid states
-   - detects begin/begin misuse
-   - applies deferred resize
-   - returns `false` when rendering should be skipped (minimized/invalid state)
-2. app records view setup + submissions
-3. `end_frame()`
-   - detects end without begin
-   - presents (`bgfx::frame()`)
-   - records frame stats and optional pacing sleep
+Shader outputs are generated under:
 
-This creates a stable contract for future view/pass expansion without redesigning loop ownership.
+- `bin/shaders/bin/<backend>/<category>/<program>/<variant>/<stage>.bin`
+- `bin/shaders/metadata/<backend>/<category>/<program>/<variant>/*.json`
 
-## Resize policy
+Backend mapping is explicit in compile scripts (`spirv`, `glsl`, `metal`, `dx11`) and runtime lookup uses the same mapping through `backend_shader_folder(...)`.
 
-Resize is explicit and resilient:
+## Runtime loading and hot reload
 
-- shell forwards resize events with `request_resize(width, height)`
-- resize requests are deduplicated and applied at frame boundary
-- zero/minimized dimensions are treated as non-renderable and do not hard-fail the renderer
-- rendering automatically resumes when a valid size arrives
+`render_shell` now loads the debug triangle program through `ShaderProgramLibrary` instead of hardcoded shader file paths.
 
-## Frame pacing policy (current stage)
+Hot reload policy:
 
-Current pacing is intentionally lightweight:
+- monitor compiled vertex/fragment binaries and `program.json`
+- if changed, attempt loading replacement program
+- only swap handle after successful creation
+- on failure, retain previous valid program and log warning
 
-- primary pacing remains present/vsync (`vsync` + reset flags)
-- optional minimum frame duration (`min_frame_time_ms`) prevents runaway present loops when desired
-- no simulation scheduler or fixed-step governor is introduced at this stage
+This keeps development iteration fast while avoiding renderer corruption on bad recompiles.
 
-## Recovery/device-loss philosophy
+## Reflection metadata foundation
 
-A sane engine-owned recovery path is established:
+The pipeline emits engine-facing JSON metadata:
 
-- failed/recovery states are explicit
-- `try_recover()` attempts an in-place reset path (`bgfx::reset`) using current backbuffer
-- automatic recovery attempts are gated by `allow_automatic_recovery`
-- recovery attempts and outcomes are logged
+- stage metadata (`vs.json`, `fs.json`) with identity, source, defines, backend, and SHA256
+- `program.json` with stage list and binary/metadata references
 
-This is a practical base for later full resource re-creation pipelines.
+This is intentionally a foundation for later material binding validation and pipeline introspection.
 
-## Runtime shell integration
+## Current limits / follow-ups
 
-`render_shell` now:
+Deferred to later statements:
 
-- forwards platform resize events through `request_resize`
-- gates rendering work on `begin_frame()` success
-- avoids undefined frame flow when minimized or otherwise non-renderable
-- keeps shutdown ordered (`destroy resources` -> `renderer.shutdown()` -> `runtime.shutdown()`)
-
-## Current non-goals / deferred work
-
-Still deferred to later statements:
-
-- full multi-device-loss backend edge-case matrix
-- explicit persistent resource registry for automated rebuild
-- render graph and multi-pass scheduling
-- scene/material-driven rendering orchestration
+- richer uniform/resource reflection extraction beyond identity/hash fields
+- compute shader runtime integration (manifest structure already reserves this)
+- centralized material system on top of `ShaderProgramId`
+- full editor/content pipeline tooling around variants and dependency graphs

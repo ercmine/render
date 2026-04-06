@@ -23,12 +23,17 @@ Runtime dependencies can come from:
 - SDL3 system package for SDL only (`find_package(SDL3 CONFIG)`)
 - FetchContent fallback (`-DRENDER_ALLOW_FETCHCONTENT=ON`)
 
-## Shader compilation options
+## Shader pipeline options
 
-- `render_shell` expects compiled shaders at runtime under `bin/shaders/bin/<backend>/`.
-- The `render_shader_check` target drives shader compilation and validation.
+- Shader sources and conventions live under `shaders/` with manifest-driven entries in `shaders/shaders.cmake`.
+- `render_shaders` compiles binaries and reflection metadata under `<build>/bin/shaders/`.
+- Runtime expects:
+  - binaries: `bin/shaders/bin/<backend>/<category>/<program>/<variant>/<stage>.bin`
+  - metadata: `bin/shaders/metadata/<backend>/<category>/<program>/<variant>/*.json`
+- `render_shader_check` drives the same shader pipeline used by shell/tests/packaging.
 - If `RENDER_BGFX_SHADERC` is not set, compilation is skipped unless `RENDER_REQUIRE_SHADER_COMPILATION=ON`.
 - Enable `RENDER_BGFX_BUILD_TOOLS=ON` to build bgfx tooling (including `shaderc`) when available.
+- Use `RENDER_SHADER_BACKENDS` to override host-default backend list.
 
 ## Quick Start (Linux/macOS)
 

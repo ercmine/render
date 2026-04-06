@@ -2,6 +2,7 @@
 #include "engine/platform/platform_log.hpp"
 #include "engine/platform/platform_runtime.hpp"
 #include "engine/render/renderer.hpp"
+#include "engine/render/shader_library.hpp"
 
 #include <array>
 #include <cstddef>
@@ -45,17 +46,6 @@ render::rendering::RendererBackend parse_renderer_backend_from_args(const int ar
   }
 
   return render::rendering::RendererBackend::Auto;
-}
-
-std::filesystem::path shader_backend_directory(const render::rendering::RendererBackend backend) {
-  switch (backend) {
-    case render::rendering::RendererBackend::Direct3D11:
-    case render::rendering::RendererBackend::Direct3D12: return "dx11";
-    case render::rendering::RendererBackend::Metal: return "metal";
-    case render::rendering::RendererBackend::Vulkan: return "spirv";
-    case render::rendering::RendererBackend::OpenGL: return "glsl";
-    default: return "spirv";
-  }
 }
 
 std::array<float, 16> identity_matrix() {
@@ -138,14 +128,13 @@ int main(int argc, char** argv) {
   const render::rendering::VertexBufferHandle vertex_buffer = renderer.create_vertex_buffer(vertex_buffer_desc);
   const render::rendering::IndexBufferHandle index_buffer = renderer.create_index_buffer(index_buffer_desc);
 
-  const std::filesystem::path shader_root = filesystem.root(render::filesystem::PathCategory::InstallRoot)
-                                          / "shaders/bin" / shader_backend_directory(renderer.backend());
-  const render::rendering::ShaderProgramDescription program_desc{
-    .vertex_shader_path = shader_root / "vs_statement4.bin",
-    .fragment_shader_path = shader_root / "fs_statement4.bin",
-    .debug_name = "statement4_program",
+  render::rendering::ShaderProgramLibrary shader_library{renderer, filesystem};
+  const render::rendering::ShaderProgramId shader_id{
+    .category = "debug",
+    .name = "debug_triangle",
+    .variant = "default",
   };
-  const render::rendering::ProgramHandle program = renderer.create_program(program_desc);
+  render::rendering::ProgramHandle program = shader_library.load_program(shader_id);
 
   const auto identity = identity_matrix();
 
@@ -176,6 +165,8 @@ int main(int argc, char** argv) {
     constexpr render::rendering::ViewId kMainView{0};
     renderer.set_view(kMainView, view);
     renderer.set_view_transform(kMainView, std::span<const float, 16>{identity}, std::span<const float, 16>{identity});
+
+    shader_library.reload_if_stale(shader_id, program);
 
     if (program.idx != render::rendering::kInvalidHandle) {
       render::rendering::MeshSubmission submission{};
