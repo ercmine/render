@@ -94,3 +94,65 @@ Deferred to later statements:
 - draw submissions are emitted from `Scene::collect_visible_renderables(...)`
 
 This establishes a stable engine-owned scene/runtime boundary above the renderer API.
+
+## Geometry submission foundation (Statement 12)
+
+Statement 12 introduces an engine-owned geometry submission path designed for procedural workloads.
+
+### Implemented renderer-side concepts
+
+- `VertexLayoutDescription` with explicit offsets/stride and validation.
+- `MeshBufferDescription` / `IndexBufferDescription` with usage intent and debug metadata.
+- `InstanceBufferDescription` abstraction for reusable instance payload uploads.
+- CPU mesh bridge through `CpuMeshData` + `validate_cpu_mesh_data(...)`.
+- `MaterialBinding` wrapping program + parameter hash (with texture slots reserved).
+- `DrawSubmission` and `DrawBatch` structures for explicit per-draw/per-batch inspection.
+
+### Batching rules
+
+Current batching key is the tuple:
+
+- view id
+- mesh buffer handle
+- index buffer handle
+- program handle
+- render state flags
+- material parameter hash
+
+Draws sharing the same key are grouped together. If group size is >= `BatchPolicy::min_instanced_count` (default 4), the renderer emits instanced draws; otherwise each draw is submitted uniquely.
+
+This creates deterministic, stable grouping and keeps a clear path for future auto-batching improvements.
+
+### Instancing policy
+
+- Preferred path for repeated procedural objects is instancing.
+- One-off or small groups remain unique draws.
+- `BatchPolicy::max_instances_per_draw` caps batch size and splits very large groups into multiple instanced draw calls.
+
+### Scene integration
+
+Scene renderables now carry renderer-owned resource bindings:
+
+- `mesh_buffer` + optional `index_buffer/index_count`
+- `material` (`MaterialBinding`)
+- `draw_state`
+
+`render_shell` extracts scene-visible renderables, creates `DrawSubmission` records, runs batch planning, and submits unique or instanced draws via renderer API.
+
+### Diagnostics
+
+`SubmissionDiagnostics` reports:
+
+- submitted draw count
+- instanced draw count
+- unique draw count
+- submitted instance total
+- batch count
+
+These diagnostics are intended for profiling/debug overlays and frame-level instrumentation.
+
+### Deferred follow-ups
+
+- Dynamic GPU buffer update path currently uses a placeholder API contract and is staged for a follow-up statement.
+- Full material parameter/uniform binding and texture set binding beyond fixed slots is deferred.
+- GPU-driven culling/indirect draw remains deferred by design.

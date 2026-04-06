@@ -26,3 +26,14 @@ The public renderer API now exposes an explicit lifecycle and frame contract:
 - Recovery hook: `try_recover`
 
 This keeps app/runtime code independent of bgfx lifecycle details.
+
+## Geometry submission layer (Statement 12)
+
+New engine-owned geometry submission files:
+
+- `buffer_types.*`: vertex/index/instance descriptors, CPU mesh validation, material binding.
+- `draw_submission.*`: draw submission records, batching keys, instancing policy, submission diagnostics.
+
+`Renderer` now exposes mesh/index/instance buffer creation + update hooks and both unique and instanced submission entry points.
+
+bgfx handles remain internal to backend implementation (`engine/render/bgfx/renderer_bgfx.cpp`).

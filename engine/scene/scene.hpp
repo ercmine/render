@@ -2,6 +2,7 @@
 
 #include "engine/core/camera.hpp"
 #include "engine/core/transform.hpp"
+#include "engine/render/buffer_types.hpp"
 #include "engine/render/renderer_types.hpp"
 
 #include <cstdint>
@@ -62,10 +63,10 @@ struct LightComponent {
 struct RenderableComponent {
   bool enabled{true};
   std::uint32_t layer_mask{kVisibilityAll};
-  rendering::VertexBufferHandle vertex_buffer{};
+  rendering::MeshBufferHandle mesh_buffer{};
   rendering::IndexBufferHandle index_buffer{};
   std::uint32_t index_count{0};
-  rendering::ProgramHandle program{};
+  rendering::MaterialBinding material{};
   rendering::DrawState draw_state{};
 };
 

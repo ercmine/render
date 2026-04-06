@@ -57,6 +57,9 @@ int main() {
   assert(graph.set_light(child, light));
 
   scene::RenderableComponent renderable{};
+  renderable.mesh_buffer.idx = 7;
+  renderable.index_buffer.idx = 8;
+  renderable.material.program.idx = 11;
   renderable.index_count = 6;
   renderable.layer_mask = 0x1u;
   assert(graph.set_renderable(grandchild, renderable));

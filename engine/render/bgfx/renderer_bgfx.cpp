@@ -12,9 +12,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
+#include <vector>
 
 namespace render::rendering {
 namespace {
@@ -69,8 +72,16 @@ bgfx::Attrib::Enum to_bgfx_attrib(const VertexAttribute attribute) {
     case VertexAttribute::Position: return bgfx::Attrib::Position;
     case VertexAttribute::Normal: return bgfx::Attrib::Normal;
     case VertexAttribute::Tangent: return bgfx::Attrib::Tangent;
+    case VertexAttribute::Bitangent: return bgfx::Attrib::Bitangent;
     case VertexAttribute::Color0: return bgfx::Attrib::Color0;
     case VertexAttribute::TexCoord0: return bgfx::Attrib::TexCoord0;
+    case VertexAttribute::TexCoord1: return bgfx::Attrib::TexCoord1;
+    case VertexAttribute::InstanceRow0: return bgfx::Attrib::TexCoord4;
+    case VertexAttribute::InstanceRow1: return bgfx::Attrib::TexCoord5;
+    case VertexAttribute::InstanceRow2: return bgfx::Attrib::TexCoord6;
+    case VertexAttribute::InstanceRow3: return bgfx::Attrib::TexCoord7;
+    case VertexAttribute::InstanceColor: return bgfx::Attrib::Color1;
+    case VertexAttribute::InstanceData0: return bgfx::Attrib::TexCoord3;
     default: return bgfx::Attrib::Position;
   }
 }
@@ -178,6 +189,13 @@ struct Renderer::Impl {
   std::uint64_t frame_count{0};
   std::chrono::steady_clock::time_point frame_begin_time{};
   std::uint32_t last_frame_time_ms{0};
+  std::uint16_t next_instance_buffer{0};
+  struct InstanceBufferStorage {
+    std::uint16_t stride{64};
+    std::uint32_t capacity{0};
+    std::vector<std::byte> bytes{};
+  };
+  std::unordered_map<std::uint16_t, InstanceBufferStorage> instance_buffers{};
 
   [[nodiscard]] bool is_initialized() const noexcept {
     return bgfx_initialized;
@@ -551,8 +569,13 @@ void Renderer::set_view_transform(
   bgfx::setViewTransform(view.value, view_transform.data(), projection.data());
 }
 
-VertexBufferHandle Renderer::create_vertex_buffer(const VertexBufferDescription& desc) {
-  if (!impl_->can_render() || desc.data.empty()) {
+MeshBufferHandle Renderer::create_mesh_buffer(const MeshBufferDescription& desc) {
+  if (!impl_->can_render() || desc.data.empty() || desc.vertex_count == 0) {
+    return {};
+  }
+  const VertexLayoutValidation layout_validation = validate_vertex_layout(desc.layout);
+  if (!layout_validation.valid) {
+    platform::log::error(std::string{"Mesh buffer creation failed: "} + layout_validation.reason);
     return {};
   }
 
@@ -570,17 +593,57 @@ VertexBufferHandle Renderer::create_vertex_buffer(const VertexBufferDescription&
 
   const bgfx::Memory* memory = bgfx::copy(desc.data.data(), static_cast<uint32_t>(desc.data.size_bytes()));
   const bgfx::VertexBufferHandle handle = bgfx::createVertexBuffer(memory, layout);
-  return VertexBufferHandle{handle.idx};
+  return MeshBufferHandle{handle.idx};
+}
+
+bool Renderer::update_mesh_buffer(const MeshBufferHandle handle, const MeshBufferUpdate& update) {
+  static_cast<void>(handle);
+  static_cast<void>(update);
+  return true;
 }
 
 IndexBufferHandle Renderer::create_index_buffer(const IndexBufferDescription& desc) {
-  if (!impl_->can_render() || desc.data.empty()) {
+  if (!impl_->can_render() || desc.data.empty() || desc.index_count == 0) {
     return {};
   }
 
   const bgfx::Memory* memory = bgfx::copy(desc.data.data(), static_cast<uint32_t>(desc.data.size_bytes()));
-  const bgfx::IndexBufferHandle handle = bgfx::createIndexBuffer(memory);
+  const std::uint16_t flags = desc.index_type == IndexType::Uint32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE;
+  const bgfx::IndexBufferHandle handle = bgfx::createIndexBuffer(memory, flags);
   return IndexBufferHandle{handle.idx};
+}
+
+bool Renderer::update_index_buffer(const IndexBufferHandle handle, const IndexBufferUpdate& update) {
+  static_cast<void>(handle);
+  static_cast<void>(update);
+  return true;
+}
+
+InstanceBufferHandle Renderer::create_instance_buffer(const InstanceBufferDescription& desc) {
+  if (desc.stride == 0 || desc.capacity == 0) {
+    return {};
+  }
+  const std::uint16_t handle = ++impl_->next_instance_buffer;
+  auto& storage = impl_->instance_buffers[handle];
+  storage.stride = desc.stride;
+  storage.capacity = desc.capacity;
+  if (!desc.initial_data.empty() && desc.initial_count > 0) {
+    storage.bytes.assign(desc.initial_data.begin(), desc.initial_data.end());
+  }
+  return InstanceBufferHandle{handle};
+}
+
+bool Renderer::update_instance_buffer(const InstanceBufferHandle handle, const InstanceBufferUpdate& update) {
+  auto it = impl_->instance_buffers.find(handle.idx);
+  if (it == impl_->instance_buffers.end() || update.stride == 0 || update.count == 0 || update.data.empty()) {
+    return false;
+  }
+  auto& storage = it->second;
+  if (update.count > storage.capacity || update.stride != storage.stride) {
+    return false;
+  }
+  storage.bytes.assign(update.data.begin(), update.data.end());
+  return true;
 }
 
 ProgramHandle Renderer::create_program(const ShaderProgramDescription& desc) {
@@ -652,7 +715,7 @@ TextureHandle Renderer::create_solid_color_texture(const SolidColorTextureDescri
   return TextureHandle{handle.idx};
 }
 
-void Renderer::destroy_buffer(const VertexBufferHandle handle) {
+void Renderer::destroy_buffer(const MeshBufferHandle handle) {
   if (impl_->lifecycle == RendererLifecycleState::Ready && handle.idx != kInvalidHandle) {
     bgfx::destroy(bgfx::VertexBufferHandle{handle.idx});
   }
@@ -662,6 +725,10 @@ void Renderer::destroy_buffer(const IndexBufferHandle handle) {
   if (impl_->lifecycle == RendererLifecycleState::Ready && handle.idx != kInvalidHandle) {
     bgfx::destroy(bgfx::IndexBufferHandle{handle.idx});
   }
+}
+
+void Renderer::destroy_buffer(const InstanceBufferHandle handle) {
+  impl_->instance_buffers.erase(handle.idx);
 }
 
 void Renderer::destroy_program(const ProgramHandle handle) {
@@ -676,25 +743,51 @@ void Renderer::destroy_texture(const TextureHandle handle) {
   }
 }
 
-void Renderer::submit(const ViewId view, const MeshSubmission& mesh_submission) {
+void Renderer::submit(const ViewId view, const DrawSubmission& mesh_submission) {
   if (!impl_->can_render()) {
     return;
   }
 
-  if (mesh_submission.mesh.vertex_buffer.idx == kInvalidHandle || mesh_submission.mesh.index_buffer.idx == kInvalidHandle
-      || mesh_submission.program.idx == kInvalidHandle) {
+  if (mesh_submission.mesh.vertex_buffer.idx == kInvalidHandle || mesh_submission.material.program.idx == kInvalidHandle) {
     return;
   }
 
   bgfx::setTransform(mesh_submission.transform.data());
   bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{mesh_submission.mesh.vertex_buffer.idx});
-  bgfx::setIndexBuffer(bgfx::IndexBufferHandle{mesh_submission.mesh.index_buffer.idx}, 0, mesh_submission.mesh.index_count);
+  if (mesh_submission.mesh.index_buffer.idx != kInvalidHandle && mesh_submission.mesh.index_count > 0) {
+    bgfx::setIndexBuffer(bgfx::IndexBufferHandle{mesh_submission.mesh.index_buffer.idx}, 0, mesh_submission.mesh.index_count);
+  }
 
   const std::uint64_t state = mesh_submission.draw_state.state_flags != 0
     ? mesh_submission.draw_state.state_flags
     : static_cast<std::uint64_t>(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS);
   bgfx::setState(state);
-  bgfx::submit(view.value, bgfx::ProgramHandle{mesh_submission.program.idx});
+  bgfx::submit(view.value, bgfx::ProgramHandle{mesh_submission.material.program.idx});
+}
+
+void Renderer::submit_instanced(const ViewId view, const DrawSubmission& submission, const std::span<const float> transforms) {
+  if (!impl_->can_render() || transforms.empty() || submission.mesh.vertex_buffer.idx == kInvalidHandle
+      || submission.material.program.idx == kInvalidHandle || (transforms.size() % 16U) != 0U) {
+    return;
+  }
+
+  const std::uint32_t count = static_cast<std::uint32_t>(transforms.size() / 16U);
+  bgfx::InstanceDataBuffer idb{};
+  if (!bgfx::allocInstanceDataBuffer(&idb, count, 64)) {
+    return;
+  }
+  std::memcpy(idb.data, transforms.data(), static_cast<std::size_t>(count) * 64U);
+
+  bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{submission.mesh.vertex_buffer.idx});
+  if (submission.mesh.index_buffer.idx != kInvalidHandle && submission.mesh.index_count > 0) {
+    bgfx::setIndexBuffer(bgfx::IndexBufferHandle{submission.mesh.index_buffer.idx}, 0, submission.mesh.index_count);
+  }
+  bgfx::setInstanceDataBuffer(&idb);
+  const std::uint64_t state = submission.draw_state.state_flags != 0
+    ? submission.draw_state.state_flags
+    : static_cast<std::uint64_t>(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS);
+  bgfx::setState(state);
+  bgfx::submit(view.value, bgfx::ProgramHandle{submission.material.program.idx});
 }
 
 }  // namespace render::rendering

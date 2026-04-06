@@ -113,6 +113,9 @@ add_library(render_renderer STATIC
   engine/render/renderer.hpp
   engine/render/renderer_types.hpp
   engine/render/buffer_types.hpp
+  engine/render/buffer_types.cpp
+  engine/render/draw_submission.hpp
+  engine/render/draw_submission.cpp
   engine/render/shader_types.hpp
   engine/render/shader_library.hpp
   engine/render/shader_library.cpp
@@ -204,6 +207,11 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_shader_pipeline_tests)
   render_apply_warnings(render_shader_pipeline_tests)
 
+  add_executable(render_geometry_submission_tests tests/render/geometry_submission_tests.cpp)
+  target_link_libraries(render_geometry_submission_tests PRIVATE render::renderer)
+  render_apply_project_options(render_geometry_submission_tests)
+  render_apply_warnings(render_geometry_submission_tests)
+
   add_executable(render_scene_tests tests/scene/scene_tests.cpp)
   target_link_libraries(render_scene_tests PRIVATE render::scene)
   render_apply_project_options(render_scene_tests)
@@ -221,6 +229,8 @@ if(RENDER_BUILD_TESTS)
   set_tests_properties(unit.renderer.lifecycle PROPERTIES LABELS "unit;renderer")
   add_test(NAME unit.renderer.shader_pipeline COMMAND render_shader_pipeline_tests)
   set_tests_properties(unit.renderer.shader_pipeline PROPERTIES LABELS "unit;renderer;shader")
+  add_test(NAME unit.renderer.geometry_submission COMMAND render_geometry_submission_tests)
+  set_tests_properties(unit.renderer.geometry_submission PROPERTIES LABELS "unit;renderer;geometry")
   add_test(NAME unit.scene.runtime COMMAND render_scene_tests)
   set_tests_properties(unit.scene.runtime PROPERTIES LABELS "unit;scene")
   add_test(NAME headless.smoke.startup COMMAND render_headless_validation)
@@ -228,7 +238,7 @@ if(RENDER_BUILD_TESTS)
 
   add_custom_target(render_test_unit
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex unit
-    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests render_scene_tests
+    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests render_geometry_submission_tests render_scene_tests
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "Running render unit tests"
   )
