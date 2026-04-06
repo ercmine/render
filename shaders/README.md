@@ -49,6 +49,13 @@ Current variant policy:
 - targeted debug variants (example: `debug_tint`)
 - no free-form runtime define explosion; each variant must be declared in the manifest
 
+Statement 14 adds canonical renderer debug programs:
+
+- `renderer_debug_normals`
+- `renderer_debug_albedo`
+- `renderer_debug_depth`
+- `renderer_debug_overdraw`
+
 ## Build integration
 
 Use `render_shaders` to compile all declared programs/variants for selected backends.
