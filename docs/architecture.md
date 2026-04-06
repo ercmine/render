@@ -1,4 +1,4 @@
-# Architecture Snapshot (Statement 4)
+# Architecture Snapshot (Statement 5)
 
 ## Runtime layering now implemented
 
@@ -29,3 +29,8 @@
 - SDL headers/functions are allowed in `engine/platform/sdl/*` and renderer backend glue only.
 - bgfx/bx/bimg headers/functions are allowed only in `engine/render/bgfx/*`.
 - Gameplay-facing and higher-level systems should consume `engine/render/renderer.hpp` and renderer-owned types.
+
+
+5. **Core runtime layer (`engine/core`)**
+   - Foundational math, transforms, camera helpers, colors, UUID/hash/random utilities.
+   - Shared runtime services for memory, threading, logging, assertions, and profiling hooks.
