@@ -114,6 +114,8 @@ add_library(render_renderer STATIC
   engine/render/renderer_types.hpp
   engine/render/buffer_types.hpp
   engine/render/shader_types.hpp
+  engine/render/shader_library.hpp
+  engine/render/shader_library.cpp
   engine/render/texture_types.hpp
   engine/render/bgfx/renderer_bgfx.cpp
 )
@@ -186,6 +188,11 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_renderer_lifecycle_tests)
   render_apply_warnings(render_renderer_lifecycle_tests)
 
+  add_executable(render_shader_pipeline_tests tests/render/shader_pipeline_tests.cpp)
+  target_link_libraries(render_shader_pipeline_tests PRIVATE render::renderer render::filesystem)
+  render_apply_project_options(render_shader_pipeline_tests)
+  render_apply_warnings(render_shader_pipeline_tests)
+
   add_test(NAME unit.platform.types COMMAND render_platform_types_tests)
   set_tests_properties(unit.platform.types PROPERTIES LABELS "unit;platform")
   add_test(NAME unit.core.runtime COMMAND render_core_runtime_tests)
@@ -196,12 +203,14 @@ if(RENDER_BUILD_TESTS)
   set_tests_properties(unit.filesystem.service PROPERTIES LABELS "unit;filesystem")
   add_test(NAME unit.renderer.lifecycle COMMAND render_renderer_lifecycle_tests)
   set_tests_properties(unit.renderer.lifecycle PROPERTIES LABELS "unit;renderer")
+  add_test(NAME unit.renderer.shader_pipeline COMMAND render_shader_pipeline_tests)
+  set_tests_properties(unit.renderer.shader_pipeline PROPERTIES LABELS "unit;renderer;shader")
   add_test(NAME headless.smoke.startup COMMAND render_headless_validation)
   set_tests_properties(headless.smoke.startup PROPERTIES LABELS "headless;smoke")
 
   add_custom_target(render_test_unit
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex unit
-    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests
+    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "Running render unit tests"
   )
@@ -220,6 +229,7 @@ set(RENDER_PACKAGE_SHADER_RELATIVE_DIR "shaders/bin")
 
 install(TARGETS render_shell RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(DIRECTORY "${CMAKE_BINARY_DIR}/bin/shaders/bin/" DESTINATION "shaders/bin" OPTIONAL)
+install(DIRECTORY "${CMAKE_BINARY_DIR}/bin/shaders/metadata/" DESTINATION "shaders/metadata" OPTIONAL)
 
 add_custom_target(render_package_stage
   COMMAND ${CMAKE_COMMAND} -E rm -rf "${RENDER_PACKAGE_STAGE_DIR}"

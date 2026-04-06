@@ -9,6 +9,12 @@ Engine-owned rendering interfaces and resource types.
 
 Higher-level engine and gameplay code should include only the public renderer headers.
 
+## Shader pipeline boundary (Statement 10)
+
+- Engine-owned shader identity and lookup APIs live in `engine/render/shader_library.*`.
+- Runtime systems should resolve shader programs through `ShaderProgramId` + `ShaderProgramLibrary`.
+- bgfx shader compilation/tooling details remain in CMake scripts under `cmake/`.
+
 ## Lifecycle contract (Statement 9)
 
 The public renderer API now exposes an explicit lifecycle and frame contract:
