@@ -11,7 +11,7 @@ This repository is organized to separate runtime, game logic, content pipelines,
 - `tools/`  
   Internal command-line and desktop utilities for content and debugging workflows.
 - `shaders/`  
-  Shader source organization (`includes`, `materials`, `post`, `debug`).
+  Shader source (`src/`) and compiled backend binaries (`bin/<backend>/`).
 - `third_party/`  
   Reserved for external dependency code, mirrors, or vendor drops.
 - `tests/`  
@@ -45,4 +45,4 @@ This repository is organized to separate runtime, game logic, content pipelines,
 
 ## Notes
 
-This layout is intentionally minimal for the initial scaffolding commit. Source code and real build logic will be added in subsequent iterations.
+Layout is incrementally populated by statements. Platform + renderer foundations are now active under `engine/platform` and `engine/render`.

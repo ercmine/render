@@ -12,35 +12,50 @@
 - Ninja (recommended default generator in presets)
 - A C++20-capable compiler
 - Git
-- SDL3 dependency source (resolved by one of the dependency strategies below)
+- Dependency source for SDL3 + bgfx/bx/bimg (via the strategies below)
 
-## SDL3 dependency options
+## Dependency options
 
-SDL3 can come from:
+Runtime dependencies can come from:
 
-- `RENDER_SDL3_ROOT` override path
-- vendored checkout in `third_party/SDL3`
-- system `find_package(SDL3 CONFIG)` installation
-- FetchContent fallback (set `-DRENDER_ALLOW_FETCHCONTENT=ON`)
+- override paths (`RENDER_SDL3_ROOT`, `RENDER_BGFX_ROOT`)
+- vendored checkouts (`third_party/SDL3`, `third_party/bgfx.cmake`)
+- SDL3 system package for SDL only (`find_package(SDL3 CONFIG)`)
+- FetchContent fallback (`-DRENDER_ALLOW_FETCHCONTENT=ON`)
+
+## Shader compilation options
+
+- `render_shell` expects compiled shaders at runtime under `bin/shaders/bin/<backend>/`.
+- The `render_shaders` target attempts compilation if `RENDER_BGFX_SHADERC` points to bgfx `shaderc`.
+- If `RENDER_BGFX_SHADERC` is not set, shader compilation is skipped and the app still runs with clear/debug output.
 
 ## Quick Start (Linux/macOS)
 
 ```bash
-cmake --preset linux-debug -DRENDER_ALLOW_FETCHCONTENT=ON
+cmake --preset linux-debug -DRENDER_ALLOW_FETCHCONTENT=ON -DRENDER_BGFX_SHADERC=/path/to/shaderc
 cmake --build --preset linux-debug
-ctest --test-dir out/build/linux-debug --output-on-failure
+cmake --build --preset linux-debug --target render_shaders
 ./out/build/linux-debug/bin/render_shell
 ```
 
 ## Quick Start (Windows)
 
 ```powershell
-cmake --preset windows-debug -DRENDER_ALLOW_FETCHCONTENT=ON
+cmake --preset windows-debug -DRENDER_ALLOW_FETCHCONTENT=ON -DRENDER_BGFX_SHADERC=C:/path/to/shaderc.exe
 cmake --build --preset windows-debug --config Debug
-ctest --test-dir out/build/windows-debug -C Debug --output-on-failure
+cmake --build --preset windows-debug --config Debug --target render_shaders
 .\out\build\windows-debug\bin\Debug\render_shell.exe
 ```
 
 ## Runtime shell behavior
 
-`render_shell` opens a resizable window, pumps events, tracks input/gamepads/timing, initializes audio plumbing, and exits when the window is closed.
+`render_shell` opens an SDL window, initializes the engine renderer abstraction, clears every frame, and submits a minimal triangle when shader binaries are present.
+
+Backend selection can be requested via:
+
+- `--backend=noop`
+- `--backend=d3d11`
+- `--backend=d3d12`
+- `--backend=metal`
+- `--backend=vulkan`
+- `--backend=opengl`
