@@ -76,3 +76,16 @@ Current debug view behavior:
 - `light-volumes`: normal shading with overlay diagnostics for light counts.
 - `overdraw`: additive/no-depth approximation pass override.
 - `gpu-timing`: overlay emphasizes per-pass timing rows; current implementation is CPU-timed with explicit `gpu=n/a` fallback.
+
+
+## Ambient VFX system (Statement 15)
+
+`vfx.hpp/.cpp` adds an engine-owned atmospheric VFX layer for ambient world motion.
+
+- effect templates + runtime instances (spores, dust, embers, resin drips, glow pulses, market ambience)
+- deterministic CPU simulation for spawn/lifetime/drift using `core::Random`
+- GPU instanced sprite submission through existing `Renderer::submit_instanced`
+- diagnostics for active effects/particles and VFX draw/upload counts
+- category toggles (`VfxToggleMask`) for profiling and debug isolation
+
+Scene-level attachment is handled by `scene::VfxAttachmentComponent` (in `engine/scene`) so effects can follow node transforms without exposing backend-specific handles.

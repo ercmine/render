@@ -124,6 +124,8 @@ add_library(render_renderer STATIC
   engine/render/lighting.hpp
   engine/render/lighting.cpp
   engine/render/texture_types.hpp
+  engine/render/vfx.hpp
+  engine/render/vfx.cpp
   engine/render/bgfx/renderer_bgfx.cpp
 )
 add_library(render::renderer ALIAS render_renderer)
@@ -231,6 +233,11 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_scene_tests)
   render_apply_warnings(render_scene_tests)
 
+  add_executable(render_vfx_system_tests tests/render/vfx_system_tests.cpp)
+  target_link_libraries(render_vfx_system_tests PRIVATE render::renderer)
+  render_apply_project_options(render_vfx_system_tests)
+  render_apply_warnings(render_vfx_system_tests)
+
   add_test(NAME unit.platform.types COMMAND render_platform_types_tests)
   set_tests_properties(unit.platform.types PROPERTIES LABELS "unit;platform")
   add_test(NAME unit.core.runtime COMMAND render_core_runtime_tests)
@@ -251,12 +258,14 @@ if(RENDER_BUILD_TESTS)
   set_tests_properties(unit.renderer.debug_views PROPERTIES LABELS "unit;renderer;debug")
   add_test(NAME unit.scene.runtime COMMAND render_scene_tests)
   set_tests_properties(unit.scene.runtime PROPERTIES LABELS "unit;scene")
+  add_test(NAME unit.renderer.vfx_system COMMAND render_vfx_system_tests)
+  set_tests_properties(unit.renderer.vfx_system PROPERTIES LABELS "unit;renderer;vfx")
   add_test(NAME headless.smoke.startup COMMAND render_headless_validation)
   set_tests_properties(headless.smoke.startup PROPERTIES LABELS "headless;smoke")
 
   add_custom_target(render_test_unit
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex unit
-    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests render_geometry_submission_tests render_lighting_pipeline_tests render_debug_renderer_tests render_scene_tests
+    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests render_geometry_submission_tests render_lighting_pipeline_tests render_debug_renderer_tests render_scene_tests render_vfx_system_tests
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "Running render unit tests"
   )

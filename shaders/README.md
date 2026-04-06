@@ -10,6 +10,7 @@ Statement 10 establishes the canonical, engine-owned shader workflow.
 - `shaders/materials/<shader_name>/` material shader sources (`vs.sc`, `fs.sc`, optional `cs.sc`)
 - `shaders/post/<shader_name>/` post-process shader sources
 - `shaders/debug/<shader_name>/` debug visualization shader sources
+- `shaders/vfx/<shader_name>/` lightweight atmospheric VFX shader sources
 - `shaders/shaders.cmake` canonical manifest of programs, variants, and defines
 
 Generated output root (build tree):

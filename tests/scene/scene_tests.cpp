@@ -78,6 +78,14 @@ int main() {
   const auto highlighted = graph.collect_highlighted_renderables(0x1u);
   assert(highlighted.size() == 1);
 
+  scene::VfxAttachmentComponent vfx_attachment{};
+  vfx_attachment.layer_mask = 0x1u;
+  vfx_attachment.effect_handle = 42;
+  assert(graph.set_vfx_attachment(grandchild, vfx_attachment));
+  const auto vfx_visible = graph.collect_visible_vfx_attachments(0x1u);
+  assert(vfx_visible.size() == 1);
+  assert(vfx_visible.front().attachment->effect_handle == 42);
+
   scene::SceneLightingSettings lighting{};
   lighting.fog.enabled = true;
   lighting.fog.density = 0.03F;

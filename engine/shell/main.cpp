@@ -5,6 +5,7 @@
 #include "engine/render/lighting.hpp"
 #include "engine/render/renderer.hpp"
 #include "engine/render/shader_library.hpp"
+#include "engine/render/vfx.hpp"
 #include "engine/scene/scene.hpp"
 
 #include <array>
@@ -74,7 +75,7 @@ int main(int argc, char** argv) {
   render::platform::RuntimeConfig platform_config{};
   platform_config.app_name = "render-shell";
   platform_config.org_name = "render";
-  platform_config.window.title = "render :: Statement 14 renderer debug shell";
+  platform_config.window.title = "render :: Statement 15 ambient vfx shell";
   platform_config.window.width = 1280;
   platform_config.window.height = 720;
   platform_config.window.resizable = true;
@@ -136,6 +137,9 @@ int main(int argc, char** argv) {
     .depth = debug_depth,
     .overdraw = debug_overdraw,
   });
+
+  render::rendering::vfx::VfxSystem vfx_system{renderer, shader_library};
+  vfx_system.initialize();
 
   render::scene::Scene scene;
   const auto root = scene.create_node("root");
@@ -202,6 +206,44 @@ int main(int argc, char** argv) {
     scene.set_light(light_node, point);
   }
 
+  const auto spores_node = scene.create_node("vfx_spores");
+  scene.set_parent(spores_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  scene.set_local_transform(spores_node, render::core::Transform{.translation = {-2.2F, 1.4F, 0.5F}, .rotation = {}, .scale = {1.0F, 1.0F, 1.0F}});
+  const auto spores_handle = vfx_system.spawn_effect(render::rendering::vfx::VfxSystem::make_spores_definition("hatchery_spores"), *scene.local_transform(spores_node));
+  scene.set_vfx_attachment(spores_node, {.effect_handle = spores_handle.value});
+
+  const auto dust_node = scene.create_node("vfx_dust");
+  scene.set_parent(dust_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  scene.set_local_transform(dust_node, render::core::Transform{.translation = {0.0F, 1.8F, 0.0F}, .rotation = {}, .scale = {1.0F, 1.0F, 1.0F}});
+  const auto dust_handle = vfx_system.spawn_effect(render::rendering::vfx::VfxSystem::make_dust_definition("market_dust"), *scene.local_transform(dust_node));
+  scene.set_vfx_attachment(dust_node, {.effect_handle = dust_handle.value});
+
+  const auto embers_node = scene.create_node("vfx_embers");
+  scene.set_parent(embers_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  scene.set_local_transform(embers_node, render::core::Transform{.translation = {3.4F, -1.5F, 0.0F}, .rotation = {}, .scale = {1.0F, 1.0F, 1.0F}});
+  const auto embers_handle = vfx_system.spawn_effect(render::rendering::vfx::VfxSystem::make_embers_definition("forge_embers"), *scene.local_transform(embers_node));
+  scene.set_vfx_attachment(embers_node, {.effect_handle = embers_handle.value});
+
+  const auto resin_node = scene.create_node("vfx_resin");
+  scene.set_parent(resin_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  scene.set_local_transform(resin_node, render::core::Transform{.translation = {-3.6F, 2.4F, -1.0F}, .rotation = {}, .scale = {1.0F, 1.0F, 1.0F}});
+  const auto resin_handle = vfx_system.spawn_effect(render::rendering::vfx::VfxSystem::make_resin_drips_definition("organic_resin_drips"), *scene.local_transform(resin_node));
+  scene.set_vfx_attachment(resin_node, {.effect_handle = resin_handle.value});
+
+  const auto pulse_node = scene.create_node("vfx_pulses");
+  scene.set_parent(pulse_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  scene.set_local_transform(pulse_node, render::core::Transform{.translation = {1.2F, 0.5F, 1.8F}, .rotation = {}, .scale = {1.0F, 1.0F, 1.0F}});
+  const auto pulse_handle = vfx_system.spawn_effect(render::rendering::vfx::VfxSystem::make_glow_pulses_definition("crystal_glow_pulse"), *scene.local_transform(pulse_node));
+  scene.set_vfx_attachment(pulse_node, {.effect_handle = pulse_handle.value});
+
+  for (const auto& preset : render::rendering::vfx::VfxSystem::make_market_ambience_preset()) {
+    const auto market_node = scene.create_node("vfx_market");
+    scene.set_parent(market_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+    scene.set_local_transform(market_node, render::core::Transform{.translation = {0.0F, 0.6F, -2.8F}, .rotation = {}, .scale = {1.0F, 1.0F, 1.0F}});
+    const auto handle = vfx_system.spawn_effect(preset, *scene.local_transform(market_node));
+    scene.set_vfx_attachment(market_node, {.effect_handle = handle.value});
+  }
+
   while (!runtime.should_quit()) {
     runtime.begin_frame();
     runtime.pump_events();
@@ -223,6 +265,13 @@ int main(int argc, char** argv) {
 
     shader_library.reload_if_stale(shader_id, program);
     scene.update_world_transforms();
+    for (const auto& attachment : scene.collect_visible_vfx_attachments()) {
+      if (attachment.attachment == nullptr || attachment.world_transform == nullptr) {
+        continue;
+      }
+      vfx_system.set_effect_transform(render::rendering::vfx::EffectHandle{attachment.attachment->effect_handle}, *attachment.world_transform);
+    }
+    vfx_system.update(1.0F / 60.0F);
 
     const float aspect_ratio = static_cast<float>(window.width) / static_cast<float>(window.height);
     const auto camera_view = scene.build_camera_view(aspect_ratio);
@@ -341,10 +390,22 @@ int main(int argc, char** argv) {
         renderer.submit(kMainView, batch.unique_draws.front());
       }
     }
+    const auto vfx_pass_start = std::chrono::steady_clock::now();
+    auto vfx_submissions = vfx_system.build_frame_submissions(kMainView);
+    for (const auto& vfx : vfx_submissions) {
+      renderer.submit_instanced(kMainView, vfx.draw, std::span<const float>{vfx.transforms});
+    }
+    const auto vfx_pass_end = std::chrono::steady_clock::now();
+
     const auto main_pass_end = std::chrono::steady_clock::now();
     renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{
       .pass_name = "main-lit-pass",
       .cpu_ms = static_cast<float>(std::chrono::duration<double, std::milli>(main_pass_end - main_pass_start).count()),
+      .gpu_ms = std::nullopt,
+    });
+    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{
+      .pass_name = "vfx-ambient-pass",
+      .cpu_ms = static_cast<float>(std::chrono::duration<double, std::milli>(vfx_pass_end - vfx_pass_start).count()),
       .gpu_ms = std::nullopt,
     });
     renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{.pass_name = "bloom-pass(plan)", .cpu_ms = 0.0F, .gpu_ms = std::nullopt});
@@ -356,11 +417,17 @@ int main(int argc, char** argv) {
       .submitted_draws = diagnostics.submitted_draws,
       .instanced_draws = diagnostics.instanced_draws,
       .submitted_instances = diagnostics.submitted_instances,
+      .vfx_active_effects = vfx_system.diagnostics().total_active_effects,
+      .vfx_active_particles = vfx_system.diagnostics().total_active_particles,
+      .vfx_draw_calls = vfx_system.diagnostics().draw_calls,
+      .vfx_instance_uploads = vfx_system.diagnostics().uploaded_instances,
     });
 
     renderer.end_frame();
     runtime.end_frame();
   }
+
+  vfx_system.shutdown();
 
   renderer.destroy_program(program);
   renderer.destroy_program(debug_normals);
