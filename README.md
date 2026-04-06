@@ -2,7 +2,7 @@
 
 `render` is a desktop-first C++20 codebase for building a custom 3D rendering engine and a game layer on top of it.
 
-## Current milestone (Statement 7)
+## Current milestone (Statement 8)
 
 The repository now includes:
 
@@ -12,6 +12,9 @@ The repository now includes:
 - a runnable shell that clears and submits minimal geometry each frame
 - a deterministic serialization foundation for save, recipe, item, room, and network payload schemas
 - an engine-owned filesystem/resource storage layer with category-based roots for source data, cache, saves, logs, screenshots, and crash dumps
+- CTest-integrated unit + headless smoke validation entry points
+- shader and packaging validation targets suitable for CI quality gates
+- GitHub Actions workflows for PR and main-branch validation
 
 ## Key boundaries
 
@@ -38,3 +41,5 @@ cmake --build --preset linux-debug
 - `docs/architecture.md` — platform + renderer boundary and layering notes
 - `docs/serialization.md` — canonical binary encoding, schema/version policy, and migration hooks
 - `docs/filesystem.md` — canonical path categories, writable layout, safe write behavior, and dev vs packaged lookup policy
+- `docs/testing.md` — testing categories, labels, and local validation commands
+- `docs/ci.md` — CI workflow matrix, blocking policy, and artifacts

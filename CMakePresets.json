@@ -77,6 +77,14 @@
       }
     },
     {
+      "name": "linux-ci",
+      "inherits": ["linux-debug"],
+      "cacheVariables": {
+        "RENDER_BGFX_BUILD_TOOLS": "ON",
+        "RENDER_REQUIRE_SHADER_COMPILATION": "ON"
+      }
+    },
+    {
       "name": "linux-release",
       "inherits": ["linux-base"],
       "cacheVariables": {
@@ -114,6 +122,10 @@
       "configurePreset": "linux-debug"
     },
     {
+      "name": "linux-ci",
+      "configurePreset": "linux-ci"
+    },
+    {
       "name": "linux-release",
       "configurePreset": "linux-release"
     },
@@ -132,6 +144,40 @@
       "configurePreset": "linux-debug",
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-unit",
+      "configurePreset": "linux-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "stopOnFailure": true
+      },
+      "filter": {
+        "label": {
+          "include": [
+            "unit"
+          ]
+        }
+      }
+    },
+    {
+      "name": "linux-headless",
+      "configurePreset": "linux-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "stopOnFailure": true
+      },
+      "filter": {
+        "label": {
+          "include": [
+            "headless"
+          ]
+        }
       }
     }
   ]

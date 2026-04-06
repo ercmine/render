@@ -26,8 +26,9 @@ Runtime dependencies can come from:
 ## Shader compilation options
 
 - `render_shell` expects compiled shaders at runtime under `bin/shaders/bin/<backend>/`.
-- The `render_shaders` target attempts compilation if `RENDER_BGFX_SHADERC` points to bgfx `shaderc`.
-- If `RENDER_BGFX_SHADERC` is not set, shader compilation is skipped and the app still runs with clear/debug output.
+- The `render_shader_check` target drives shader compilation and validation.
+- If `RENDER_BGFX_SHADERC` is not set, compilation is skipped unless `RENDER_REQUIRE_SHADER_COMPILATION=ON`.
+- Enable `RENDER_BGFX_BUILD_TOOLS=ON` to build bgfx tooling (including `shaderc`) when available.
 
 ## Quick Start (Linux/macOS)
 
@@ -59,3 +60,15 @@ Backend selection can be requested via:
 - `--backend=metal`
 - `--backend=vulkan`
 - `--backend=opengl`
+
+## Validation commands (local mirrors of CI)
+
+```bash
+cmake --build --preset linux-debug --target render_test_unit
+cmake --build --preset linux-debug --target render_test_headless
+cmake --build --preset linux-debug --target render_shader_check
+cmake --build --preset linux-debug --target render_package_validate
+cmake --build --preset linux-debug --target render_validate_all
+```
+
+See `docs/testing.md` and `docs/ci.md` for test category policy and CI matrix details.

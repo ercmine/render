@@ -4,6 +4,7 @@ set(RENDER_DEPENDENCY_ROOT "${CMAKE_SOURCE_DIR}/third_party" CACHE PATH "Default
 set(RENDER_SDL3_ROOT "" CACHE PATH "Optional local path override for SDL3")
 set(RENDER_BGFX_ROOT "" CACHE PATH "Optional local path override for bgfx.cmake (contains bgfx/bx/bimg)")
 option(RENDER_ALLOW_FETCHCONTENT "Allow FetchContent fallbacks for dependencies" OFF)
+option(RENDER_BGFX_BUILD_TOOLS "Build bgfx tool targets such as shaderc when available" OFF)
 
 function(render_setup_dependencies)
   add_library(render_dependencies INTERFACE)
@@ -111,7 +112,11 @@ function(render_configure_bgfx_bundle)
     message(STATUS "Dependency bgfx/bx/bimg: ${source_hint} path -> ${chosen_path}")
     if(EXISTS "${chosen_path}/CMakeLists.txt")
       set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-      set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+      if(RENDER_BGFX_BUILD_TOOLS)
+        set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)
+      else()
+        set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+      endif()
       add_subdirectory("${chosen_path}" "${CMAKE_BINARY_DIR}/_deps/bgfx-build" EXCLUDE_FROM_ALL)
     else()
       message(FATAL_ERROR "bgfx.cmake path does not contain CMakeLists.txt: ${chosen_path}")
@@ -121,6 +126,11 @@ function(render_configure_bgfx_bundle)
 
   if(RENDER_ALLOW_FETCHCONTENT)
     message(STATUS "Dependency bgfx/bx/bimg: FetchContent fallback enabled")
+    if(RENDER_BGFX_BUILD_TOOLS)
+      set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)
+    else()
+      set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    endif()
     FetchContent_Declare(
       bgfx_bundle
       GIT_REPOSITORY https://github.com/bkaradzic/bgfx.cmake.git

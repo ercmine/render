@@ -17,6 +17,7 @@ include(Dependencies)
 include(Versioning)
 include(Utils)
 include(ShaderCompilation)
+include(GNUInstallDirs)
 
 render_prevent_in_source_builds()
 render_apply_standard_settings()
@@ -25,6 +26,10 @@ render_setup_options()
 render_setup_dependencies()
 render_setup_versioning()
 render_setup_shader_compilation()
+
+if(RENDER_BUILD_TESTS)
+  include(CTest)
+endif()
 
 add_library(render_core STATIC
   engine/core/types.hpp
@@ -149,8 +154,6 @@ if(RENDER_BUILD_TOOLS)
 endif()
 
 if(RENDER_BUILD_TESTS)
-  include(CTest)
-
   add_executable(render_platform_types_tests tests/platform/platform_types_tests.cpp)
   target_link_libraries(render_platform_types_tests PRIVATE render::engine)
   render_apply_project_options(render_platform_types_tests)
@@ -173,10 +176,78 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_filesystem_tests)
   render_apply_warnings(render_filesystem_tests)
 
-  add_test(NAME render_platform_types_tests COMMAND render_platform_types_tests)
-  add_test(NAME render_core_runtime_tests COMMAND render_core_runtime_tests)
-  add_test(NAME render_serialization_tests COMMAND render_serialization_tests)
-  add_test(NAME render_filesystem_tests COMMAND render_filesystem_tests)
+  add_executable(render_headless_validation tests/headless/headless_validation.cpp)
+  target_link_libraries(render_headless_validation PRIVATE render::filesystem render::serialization)
+  render_apply_project_options(render_headless_validation)
+  render_apply_warnings(render_headless_validation)
+
+  add_test(NAME unit.platform.types COMMAND render_platform_types_tests)
+  set_tests_properties(unit.platform.types PROPERTIES LABELS "unit;platform")
+  add_test(NAME unit.core.runtime COMMAND render_core_runtime_tests)
+  set_tests_properties(unit.core.runtime PROPERTIES LABELS "unit;core")
+  add_test(NAME unit.serialization.roundtrip COMMAND render_serialization_tests)
+  set_tests_properties(unit.serialization.roundtrip PROPERTIES LABELS "unit;serialization")
+  add_test(NAME unit.filesystem.service COMMAND render_filesystem_tests)
+  set_tests_properties(unit.filesystem.service PROPERTIES LABELS "unit;filesystem")
+  add_test(NAME headless.smoke.startup COMMAND render_headless_validation)
+  set_tests_properties(headless.smoke.startup PROPERTIES LABELS "headless;smoke")
+
+  add_custom_target(render_test_unit
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex unit
+    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "Running render unit tests"
+  )
+
+  add_custom_target(render_test_headless
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex headless
+    DEPENDS render_headless_validation
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "Running render headless smoke validation"
+  )
+endif()
+
+set(RENDER_PACKAGE_STAGE_DIR "${CMAKE_BINARY_DIR}/package/stage")
+set(RENDER_PACKAGE_BIN_SUBDIR "${CMAKE_INSTALL_BINDIR}")
+set(RENDER_PACKAGE_SHADER_RELATIVE_DIR "shaders/bin")
+
+install(TARGETS render_shell RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(DIRECTORY "${CMAKE_BINARY_DIR}/bin/shaders/bin/" DESTINATION "shaders/bin" OPTIONAL)
+
+add_custom_target(render_package_stage
+  COMMAND ${CMAKE_COMMAND} -E rm -rf "${RENDER_PACKAGE_STAGE_DIR}"
+  DEPENDS render_shell render_shader_check
+  COMMENT "Staging render package layout"
+)
+if(CMAKE_CONFIGURATION_TYPES)
+  add_custom_command(TARGET render_package_stage
+    COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" --prefix "${RENDER_PACKAGE_STAGE_DIR}" --config $<CONFIG>
+  )
+else()
+  add_custom_command(TARGET render_package_stage
+    COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" --prefix "${RENDER_PACKAGE_STAGE_DIR}"
+  )
+endif()
+
+add_custom_target(render_package_validate
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/logs"
+  COMMAND ${CMAKE_COMMAND}
+    -DRENDER_PACKAGE_STAGE_DIR=${RENDER_PACKAGE_STAGE_DIR}
+    -DRENDER_PACKAGE_BIN_SUBDIR=${RENDER_PACKAGE_BIN_SUBDIR}
+    -DRENDER_PACKAGE_SHADER_RELATIVE_DIR=${RENDER_PACKAGE_SHADER_RELATIVE_DIR}
+    -DRENDER_PACKAGE_LOG_FILE=${CMAKE_BINARY_DIR}/logs/package_validation.log
+    -P "${CMAKE_SOURCE_DIR}/cmake/validate_package_layout.cmake"
+  DEPENDS render_package_stage
+  COMMENT "Validating package stage and archive creation"
+  VERBATIM
+)
+
+add_custom_target(render_validate_all
+  DEPENDS render_shader_check render_package_validate
+  COMMENT "Build/render validation umbrella target"
+)
+if(RENDER_BUILD_TESTS)
+  add_dependencies(render_validate_all render_test_unit render_test_headless)
 endif()
 
 message(STATUS "Configured ${PROJECT_NAME} ${PROJECT_VERSION} for ${CMAKE_SYSTEM_NAME}")
