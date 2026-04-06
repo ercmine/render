@@ -3,6 +3,7 @@
 #include "engine/platform/platform_runtime.hpp"
 #include "engine/render/renderer.hpp"
 #include "engine/render/shader_library.hpp"
+#include "engine/scene/scene.hpp"
 
 #include <array>
 #include <cstddef>
@@ -48,13 +49,8 @@ render::rendering::RendererBackend parse_renderer_backend_from_args(const int ar
   return render::rendering::RendererBackend::Auto;
 }
 
-std::array<float, 16> identity_matrix() {
-  return {
-    1.0F, 0.0F, 0.0F, 0.0F,
-    0.0F, 1.0F, 0.0F, 0.0F,
-    0.0F, 0.0F, 1.0F, 0.0F,
-    0.0F, 0.0F, 0.0F, 1.0F,
-  };
+std::array<float, 16> to_array(const render::core::Mat4& matrix) {
+  return matrix.m;
 }
 
 }  // namespace
@@ -65,7 +61,7 @@ int main(int argc, char** argv) {
   render::platform::RuntimeConfig platform_config{};
   platform_config.app_name = "render-shell";
   platform_config.org_name = "render";
-  platform_config.window.title = "render :: Statement 9 shell";
+  platform_config.window.title = "render :: Statement 11 scene shell";
   platform_config.window.width = 1280;
   platform_config.window.height = 720;
   platform_config.window.resizable = true;
@@ -136,7 +132,36 @@ int main(int argc, char** argv) {
   };
   render::rendering::ProgramHandle program = shader_library.load_program(shader_id);
 
-  const auto identity = identity_matrix();
+  render::scene::Scene scene;
+  const render::scene::SceneNodeId root = scene.create_node("root");
+  const render::scene::SceneNodeId camera_node = scene.create_node("main_camera");
+  const render::scene::SceneNodeId light_node = scene.create_node("sun");
+  const render::scene::SceneNodeId mesh_node = scene.create_node("triangle_mesh");
+
+  render::core::Transform camera_local{};
+  camera_local.translation = {0.0F, 0.0F, 3.0F};
+  scene.set_local_transform(camera_node, camera_local);
+
+  render::scene::CameraComponent camera{};
+  camera.projection = render::scene::CameraProjection::Perspective;
+  scene.set_camera(camera_node, camera);
+  scene.set_active_camera(camera_node);
+
+  render::scene::LightComponent light{};
+  light.type = render::scene::LightType::Directional;
+  light.intensity = 4.0F;
+  scene.set_light(light_node, light);
+
+  render::scene::RenderableComponent renderable{};
+  renderable.vertex_buffer = vertex_buffer;
+  renderable.index_buffer = index_buffer;
+  renderable.index_count = static_cast<std::uint32_t>(indices.size());
+  renderable.program = program;
+  scene.set_renderable(mesh_node, renderable);
+
+  scene.set_parent(camera_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  scene.set_parent(light_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  scene.set_parent(mesh_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
 
   while (!runtime.should_quit()) {
     runtime.begin_frame();
@@ -164,19 +189,42 @@ int main(int argc, char** argv) {
 
     constexpr render::rendering::ViewId kMainView{0};
     renderer.set_view(kMainView, view);
-    renderer.set_view_transform(kMainView, std::span<const float, 16>{identity}, std::span<const float, 16>{identity});
 
     shader_library.reload_if_stale(shader_id, program);
 
     if (program.idx != render::rendering::kInvalidHandle) {
+      renderable.program = program;
+      scene.set_renderable(mesh_node, renderable);
+    }
+
+    scene.update_world_transforms();
+
+    const float aspect_ratio = static_cast<float>(window.width) / static_cast<float>(window.height);
+    const std::optional<render::scene::CameraView> camera_view = scene.build_camera_view(aspect_ratio);
+    if (camera_view.has_value()) {
+      const std::array<float, 16> view_matrix = to_array(camera_view->view);
+      const std::array<float, 16> projection_matrix = to_array(camera_view->projection);
+      renderer.set_view_transform(kMainView,
+                                  std::span<const float, 16>{view_matrix},
+                                  std::span<const float, 16>{projection_matrix});
+    }
+
+    const std::vector<render::scene::VisibleRenderable> draw_list = scene.collect_visible_renderables();
+    for (const render::scene::VisibleRenderable& visible : draw_list) {
+      if (visible.renderable == nullptr || visible.world_transform == nullptr) {
+        continue;
+      }
+
+      const std::array<float, 16> world_matrix = to_array(visible.world_transform->to_matrix());
       render::rendering::MeshSubmission submission{};
       submission.mesh = render::rendering::MeshHandle{
-        .vertex_buffer = vertex_buffer,
-        .index_buffer = index_buffer,
-        .index_count = static_cast<std::uint32_t>(indices.size()),
+        .vertex_buffer = visible.renderable->vertex_buffer,
+        .index_buffer = visible.renderable->index_buffer,
+        .index_count = visible.renderable->index_count,
       };
-      submission.program = program;
-      submission.transform = std::span<const float, 16>{identity};
+      submission.program = visible.renderable->program;
+      submission.draw_state = visible.renderable->draw_state;
+      submission.transform = std::span<const float, 16>{world_matrix};
       renderer.submit(kMainView, submission);
     }
 

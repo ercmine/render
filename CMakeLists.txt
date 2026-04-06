@@ -125,11 +125,22 @@ target_link_libraries(render_renderer PUBLIC render::core render::platform rende
 render_apply_project_options(render_renderer)
 render_apply_warnings(render_renderer)
 
+
+add_library(render_scene STATIC
+  engine/scene/scene.hpp
+  engine/scene/scene.cpp
+)
+add_library(render::scene ALIAS render_scene)
+target_include_directories(render_scene PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(render_scene PUBLIC render::core render::renderer)
+render_apply_project_options(render_scene)
+render_apply_warnings(render_scene)
+
 add_library(render_engine STATIC
   engine/engine.cpp
 )
 add_library(render::engine ALIAS render_engine)
-target_link_libraries(render_engine PUBLIC render::core render::filesystem render::platform render::renderer render::serialization)
+target_link_libraries(render_engine PUBLIC render::core render::filesystem render::platform render::renderer render::serialization render::scene)
 render_apply_project_options(render_engine)
 render_apply_warnings(render_engine)
 
@@ -193,6 +204,11 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_shader_pipeline_tests)
   render_apply_warnings(render_shader_pipeline_tests)
 
+  add_executable(render_scene_tests tests/scene/scene_tests.cpp)
+  target_link_libraries(render_scene_tests PRIVATE render::scene)
+  render_apply_project_options(render_scene_tests)
+  render_apply_warnings(render_scene_tests)
+
   add_test(NAME unit.platform.types COMMAND render_platform_types_tests)
   set_tests_properties(unit.platform.types PROPERTIES LABELS "unit;platform")
   add_test(NAME unit.core.runtime COMMAND render_core_runtime_tests)
@@ -205,12 +221,14 @@ if(RENDER_BUILD_TESTS)
   set_tests_properties(unit.renderer.lifecycle PROPERTIES LABELS "unit;renderer")
   add_test(NAME unit.renderer.shader_pipeline COMMAND render_shader_pipeline_tests)
   set_tests_properties(unit.renderer.shader_pipeline PROPERTIES LABELS "unit;renderer;shader")
+  add_test(NAME unit.scene.runtime COMMAND render_scene_tests)
+  set_tests_properties(unit.scene.runtime PROPERTIES LABELS "unit;scene")
   add_test(NAME headless.smoke.startup COMMAND render_headless_validation)
   set_tests_properties(headless.smoke.startup PROPERTIES LABELS "headless;smoke")
 
   add_custom_target(render_test_unit
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex unit
-    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests
+    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests render_shader_pipeline_tests render_scene_tests
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "Running render unit tests"
   )
