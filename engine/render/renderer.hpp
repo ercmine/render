@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/render/buffer_types.hpp"
+#include "engine/render/debug_renderer.hpp"
 #include "engine/render/draw_submission.hpp"
 #include "engine/render/renderer_types.hpp"
 #include "engine/render/shader_types.hpp"
@@ -40,6 +41,14 @@ public:
   void resize(std::uint32_t width, std::uint32_t height);
 
   void set_debug_enabled(bool enabled);
+  [[nodiscard]] bool set_debug_mode(RendererDebugMode mode);
+  [[nodiscard]] RendererDebugMode debug_mode() const noexcept;
+  [[nodiscard]] bool set_debug_mode_from_index(std::uint8_t index);
+  [[nodiscard]] bool cycle_debug_mode();
+  void set_debug_program_overrides(const RendererDebugProgramOverrides& overrides);
+  void set_debug_counters(const RendererDebugCounters& counters);
+  void add_debug_pass_timing(const RendererPassTiming& timing);
+  [[nodiscard]] RendererDebugSnapshot debug_snapshot() const;
   void set_view(ViewId view, const ViewDescription& desc);
   void set_view_transform(ViewId view, std::span<const float, 16> view_transform, std::span<const float, 16> projection);
 

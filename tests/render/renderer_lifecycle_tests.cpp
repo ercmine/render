@@ -31,6 +31,10 @@ int main() {
   assert(renderer.state() == RendererLifecycleState::Uninitialized);
   assert(!renderer.is_ready());
   assert(!renderer.can_render());
+  assert(renderer.debug_mode() == RendererDebugMode::Disabled);
+  assert(renderer.set_debug_mode(RendererDebugMode::Depth));
+  assert(renderer.debug_mode() == RendererDebugMode::Depth);
+  assert(!renderer.set_debug_mode_from_index(255));
   assert(!renderer.begin_frame());
   assert(!renderer.end_frame());
 

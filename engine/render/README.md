@@ -49,3 +49,30 @@ bgfx handles remain internal to backend implementation (`engine/render/bgfx/rend
 - Diagnostics: selected/culled light counts and highlighted/shadowed object metrics.
 
 This module intentionally keeps bgfx API details out of gameplay-facing code while preparing a scalable path to tiled/clustered improvements later.
+
+## Renderer debug architecture (Statement 14)
+
+`debug_renderer.hpp/.cpp` now owns renderer debug state and overlay formatting:
+
+- canonical mode enum (`RendererDebugMode`) with runtime switching helpers
+- frame counters (lights/draws/instances)
+- pass timing samples (GPU optional, CPU fallback)
+- overlay/HUD line generation for runtime shells and future tools
+- program overrides used to translate regular scene submissions into debug views
+
+Renderer-facing API hooks are exposed directly on `Renderer`:
+
+- `set_debug_mode`, `set_debug_mode_from_index`, `cycle_debug_mode`
+- `set_debug_program_overrides`
+- `set_debug_counters`, `add_debug_pass_timing`
+- `debug_snapshot` for tool/runtime inspection
+
+Current debug view behavior:
+
+- `wireframe`: backend wireframe flag wrapped by engine mode.
+- `normals`: debug program override visualizing normalized direction.
+- `albedo`: debug program override showing base vertex color.
+- `depth`: debug program override showing remapped depth.
+- `light-volumes`: normal shading with overlay diagnostics for light counts.
+- `overdraw`: additive/no-depth approximation pass override.
+- `gpu-timing`: overlay emphasizes per-pass timing rows; current implementation is CPU-timed with explicit `gpu=n/a` fallback.

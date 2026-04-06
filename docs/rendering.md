@@ -201,3 +201,53 @@ This avoids unbounded \"every object loops every light\" behavior while preservi
 - Bloom extraction/blur/composite and outline composition passes.
 - Full lit material shader programs (current shell still renders via debug triangle program).
 - Debug view rendering modes (normals, emissive-only, bloom extraction, shadow atlas visualization).
+
+## Renderer debug views (Statement 14)
+
+The renderer now includes an engine-owned debug layer (`engine/render/debug_renderer.*`) instead of shell-only ad hoc toggles.
+
+### Modes
+
+- Disabled (normal renderer path)
+- Wireframe
+- Normals
+- Albedo
+- Depth
+- Light volumes
+- Overdraw approximation
+- GPU timing view
+
+### Runtime controls (shell)
+
+- `1` Disabled
+- `2` Wireframe
+- `3` Normals
+- `4` Albedo
+- `5` Depth
+- `6` Light volumes
+- `7` Overdraw approximation
+- `8` GPU timing view
+- `Tab` cycle modes
+
+Mode switching is routed through `Renderer` debug APIs and logged by renderer code.
+
+### Mode interpretation
+
+- Normals: uses a debug shader that maps normalized direction to RGB (`normal * 0.5 + 0.5`).
+- Albedo: displays base vertex/material color contribution (lighting bypassed).
+- Depth: linearized remap of fragment depth to grayscale for clipping/layer checks.
+- Light volumes: keeps normal rendering while exposing light-population diagnostics in overlay text.
+- Overdraw: additive no-depth accumulation approximation; brighter regions imply more overlapping shaded fragments.
+
+### GPU timing view and current limits
+
+`RendererPassTiming` supports GPU and CPU data, but current statement implementation records CPU pass durations and marks GPU values unavailable (`gpu=n/a`) when backend timing hooks are not wired yet.
+
+Tracked pass rows currently include:
+
+- shadow pass planning
+- main lit submission
+- bloom/outline placeholders
+- composite/present placeholder
+
+This keeps the instrumentation API stable while deferring backend-specific GPU timer query plumbing to a follow-up statement.

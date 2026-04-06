@@ -15,6 +15,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -196,6 +197,7 @@ struct Renderer::Impl {
     std::vector<std::byte> bytes{};
   };
   std::unordered_map<std::uint16_t, InstanceBufferStorage> instance_buffers{};
+  RendererDebugState debug_state{};
 
   [[nodiscard]] bool is_initialized() const noexcept {
     return bgfx_initialized;
@@ -303,6 +305,7 @@ bool Renderer::initialize(const RendererConfig& config, const platform::Platform
   impl_->device_lost = false;
   impl_->frame_active = false;
   impl_->has_pending_resize = false;
+  impl_->debug_state = RendererDebugState{};
 
   bgfx::Init init{};
   init.type = to_bgfx_renderer_type(config.backend);
@@ -336,6 +339,7 @@ bool Renderer::initialize(const RendererConfig& config, const platform::Platform
   impl_->selected_backend = to_backend(bgfx::getRendererType());
   impl_->backbuffer_width = config.width;
   impl_->backbuffer_height = config.height;
+  impl_->debug_state.set_gpu_timing_supported(false);
 
   const std::uint32_t debug_flags = config.debug ? BGFX_DEBUG_TEXT : BGFX_DEBUG_NONE;
   bgfx::setDebug(debug_flags);
@@ -458,9 +462,25 @@ bool Renderer::begin_frame() {
   impl_->frame_active = true;
   impl_->frame_begin_time = std::chrono::steady_clock::now();
 
+  RendererDebugSnapshot baseline{};
+  baseline.mode = impl_->debug_state.mode();
+  baseline.backend = impl_->selected_backend;
+  baseline.backbuffer_width = impl_->backbuffer_width;
+  baseline.backbuffer_height = impl_->backbuffer_height;
+  baseline.frame_time_ms = impl_->last_frame_time_ms;
+  impl_->debug_state.begin_frame(baseline);
+
   if (impl_->config.debug) {
     bgfx::dbgTextClear();
-    bgfx::dbgTextPrintf(0, 0, 0x0f, "render :: backend %s", renderer_name(bgfx::getRendererType()));
+    const std::uint32_t debug_flags =
+      impl_->debug_state.mode() == RendererDebugMode::Wireframe ? BGFX_DEBUG_TEXT | BGFX_DEBUG_WIREFRAME : BGFX_DEBUG_TEXT;
+    bgfx::setDebug(debug_flags);
+    const auto overlay_lines = impl_->debug_state.build_overlay_lines();
+    for (std::size_t i = 0; i < overlay_lines.size(); ++i) {
+      bgfx::dbgTextPrintf(0, static_cast<std::uint16_t>(i), 0x0f, "%s", overlay_lines[i].c_str());
+    }
+  } else {
+    bgfx::setDebug(BGFX_DEBUG_NONE);
   }
 
   return true;
@@ -534,8 +554,62 @@ void Renderer::resize(const std::uint32_t width, const std::uint32_t height) {
 void Renderer::set_debug_enabled(const bool enabled) {
   impl_->config.debug = enabled;
   if (impl_->lifecycle == RendererLifecycleState::Ready) {
-    bgfx::setDebug(enabled ? BGFX_DEBUG_TEXT : BGFX_DEBUG_NONE);
+    const std::uint32_t debug_flags =
+      (enabled && impl_->debug_state.mode() == RendererDebugMode::Wireframe) ? BGFX_DEBUG_TEXT | BGFX_DEBUG_WIREFRAME
+                                                                              : (enabled ? BGFX_DEBUG_TEXT : BGFX_DEBUG_NONE);
+    bgfx::setDebug(debug_flags);
   }
+}
+
+bool Renderer::set_debug_mode(const RendererDebugMode mode) {
+  if (!impl_->debug_state.set_mode(mode)) {
+    return false;
+  }
+  std::ostringstream stream;
+  stream << "Renderer debug mode switched to " << to_string(mode);
+  platform::log::info(stream.str());
+  return true;
+}
+
+RendererDebugMode Renderer::debug_mode() const noexcept {
+  return impl_->debug_state.mode();
+}
+
+bool Renderer::set_debug_mode_from_index(const std::uint8_t index) {
+  const std::optional<RendererDebugMode> mode = renderer_debug_mode_from_index(index);
+  if (!mode.has_value()) {
+    std::ostringstream stream;
+    stream << "Renderer debug mode index out of range: " << static_cast<std::uint32_t>(index);
+    platform::log::warn(stream.str());
+    return false;
+  }
+  return set_debug_mode(*mode);
+}
+
+bool Renderer::cycle_debug_mode() {
+  const bool changed = impl_->debug_state.cycle_next_mode();
+  if (changed) {
+    std::ostringstream stream;
+    stream << "Renderer debug mode switched to " << to_string(impl_->debug_state.mode());
+    platform::log::info(stream.str());
+  }
+  return changed;
+}
+
+void Renderer::set_debug_program_overrides(const RendererDebugProgramOverrides& overrides) {
+  impl_->debug_state.set_program_overrides(overrides);
+}
+
+void Renderer::set_debug_counters(const RendererDebugCounters& counters) {
+  impl_->debug_state.set_counters(counters);
+}
+
+void Renderer::add_debug_pass_timing(const RendererPassTiming& timing) {
+  impl_->debug_state.add_pass_timing(timing);
+}
+
+RendererDebugSnapshot Renderer::debug_snapshot() const {
+  return impl_->debug_state.snapshot();
 }
 
 void Renderer::set_view(const ViewId view, const ViewDescription& desc) {
@@ -758,11 +832,27 @@ void Renderer::submit(const ViewId view, const DrawSubmission& mesh_submission) 
     bgfx::setIndexBuffer(bgfx::IndexBufferHandle{mesh_submission.mesh.index_buffer.idx}, 0, mesh_submission.mesh.index_count);
   }
 
-  const std::uint64_t state = mesh_submission.draw_state.state_flags != 0
+  const RendererDebugMode debug_mode = impl_->debug_state.mode();
+  const RendererDebugProgramOverrides overrides = impl_->debug_state.program_overrides();
+  ProgramHandle program = mesh_submission.material.program;
+  if (debug_mode == RendererDebugMode::Normals && overrides.normals.idx != kInvalidHandle) {
+    program = overrides.normals;
+  } else if (debug_mode == RendererDebugMode::Albedo && overrides.albedo.idx != kInvalidHandle) {
+    program = overrides.albedo;
+  } else if (debug_mode == RendererDebugMode::Depth && overrides.depth.idx != kInvalidHandle) {
+    program = overrides.depth;
+  } else if (debug_mode == RendererDebugMode::Overdraw && overrides.overdraw.idx != kInvalidHandle) {
+    program = overrides.overdraw;
+  }
+
+  std::uint64_t state = mesh_submission.draw_state.state_flags != 0
     ? mesh_submission.draw_state.state_flags
     : static_cast<std::uint64_t>(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS);
+  if (debug_mode == RendererDebugMode::Overdraw) {
+    state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ADD | BGFX_STATE_DEPTH_TEST_ALWAYS;
+  }
   bgfx::setState(state);
-  bgfx::submit(view.value, bgfx::ProgramHandle{mesh_submission.material.program.idx});
+  bgfx::submit(view.value, bgfx::ProgramHandle{program.idx});
 }
 
 void Renderer::submit_instanced(const ViewId view, const DrawSubmission& submission, const std::span<const float> transforms) {
@@ -783,11 +873,27 @@ void Renderer::submit_instanced(const ViewId view, const DrawSubmission& submiss
     bgfx::setIndexBuffer(bgfx::IndexBufferHandle{submission.mesh.index_buffer.idx}, 0, submission.mesh.index_count);
   }
   bgfx::setInstanceDataBuffer(&idb);
-  const std::uint64_t state = submission.draw_state.state_flags != 0
+  const RendererDebugMode debug_mode = impl_->debug_state.mode();
+  const RendererDebugProgramOverrides overrides = impl_->debug_state.program_overrides();
+  ProgramHandle program = submission.material.program;
+  if (debug_mode == RendererDebugMode::Normals && overrides.normals.idx != kInvalidHandle) {
+    program = overrides.normals;
+  } else if (debug_mode == RendererDebugMode::Albedo && overrides.albedo.idx != kInvalidHandle) {
+    program = overrides.albedo;
+  } else if (debug_mode == RendererDebugMode::Depth && overrides.depth.idx != kInvalidHandle) {
+    program = overrides.depth;
+  } else if (debug_mode == RendererDebugMode::Overdraw && overrides.overdraw.idx != kInvalidHandle) {
+    program = overrides.overdraw;
+  }
+
+  std::uint64_t state = submission.draw_state.state_flags != 0
     ? submission.draw_state.state_flags
     : static_cast<std::uint64_t>(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS);
+  if (debug_mode == RendererDebugMode::Overdraw) {
+    state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ADD | BGFX_STATE_DEPTH_TEST_ALWAYS;
+  }
   bgfx::setState(state);
-  bgfx::submit(view.value, bgfx::ProgramHandle{submission.material.program.idx});
+  bgfx::submit(view.value, bgfx::ProgramHandle{program.idx});
 }
 
 }  // namespace render::rendering

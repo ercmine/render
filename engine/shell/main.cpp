@@ -8,8 +8,10 @@
 #include "engine/scene/scene.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -39,6 +41,32 @@ render::rendering::RendererBackend parse_renderer_backend_from_args(const int ar
 
 std::array<float, 16> to_array(const render::core::Mat4& matrix) { return matrix.m; }
 
+bool key_pressed(const render::platform::InputFrame& input, const render::platform::Key key) {
+  return input.keyboard.keys[render::platform::to_index(key)].pressed;
+}
+
+void apply_debug_mode_hotkeys(const render::platform::InputFrame& input, render::rendering::Renderer& renderer) {
+  if (key_pressed(input, render::platform::Key::Num1)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::Disabled);
+  } else if (key_pressed(input, render::platform::Key::Num2)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::Wireframe);
+  } else if (key_pressed(input, render::platform::Key::Num3)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::Normals);
+  } else if (key_pressed(input, render::platform::Key::Num4)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::Albedo);
+  } else if (key_pressed(input, render::platform::Key::Num5)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::Depth);
+  } else if (key_pressed(input, render::platform::Key::Num6)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::LightVolumes);
+  } else if (key_pressed(input, render::platform::Key::Num7)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::Overdraw);
+  } else if (key_pressed(input, render::platform::Key::Num8)) {
+    renderer.set_debug_mode(render::rendering::RendererDebugMode::GpuTiming);
+  } else if (key_pressed(input, render::platform::Key::Tab)) {
+    renderer.cycle_debug_mode();
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -46,7 +74,7 @@ int main(int argc, char** argv) {
   render::platform::RuntimeConfig platform_config{};
   platform_config.app_name = "render-shell";
   platform_config.org_name = "render";
-  platform_config.window.title = "render :: Statement 13 stylized lighting shell";
+  platform_config.window.title = "render :: Statement 14 renderer debug shell";
   platform_config.window.width = 1280;
   platform_config.window.height = 720;
   platform_config.window.resizable = true;
@@ -94,6 +122,20 @@ int main(int argc, char** argv) {
   render::rendering::ShaderProgramLibrary shader_library{renderer, filesystem};
   const render::rendering::ShaderProgramId shader_id{.category = "debug", .name = "debug_triangle", .variant = "default"};
   render::rendering::ProgramHandle program = shader_library.load_program(shader_id);
+  const render::rendering::ProgramHandle debug_normals = shader_library.load_program(
+    render::rendering::ShaderProgramId{.category = "debug", .name = "renderer_debug_normals", .variant = "default"});
+  const render::rendering::ProgramHandle debug_albedo = shader_library.load_program(
+    render::rendering::ShaderProgramId{.category = "debug", .name = "renderer_debug_albedo", .variant = "default"});
+  const render::rendering::ProgramHandle debug_depth = shader_library.load_program(
+    render::rendering::ShaderProgramId{.category = "debug", .name = "renderer_debug_depth", .variant = "default"});
+  const render::rendering::ProgramHandle debug_overdraw = shader_library.load_program(
+    render::rendering::ShaderProgramId{.category = "debug", .name = "renderer_debug_overdraw", .variant = "default"});
+  renderer.set_debug_program_overrides(render::rendering::RendererDebugProgramOverrides{
+    .normals = debug_normals,
+    .albedo = debug_albedo,
+    .depth = debug_depth,
+    .overdraw = debug_overdraw,
+  });
 
   render::scene::Scene scene;
   const auto root = scene.create_node("root");
@@ -163,6 +205,7 @@ int main(int argc, char** argv) {
   while (!runtime.should_quit()) {
     runtime.begin_frame();
     runtime.pump_events();
+    apply_debug_mode_hotkeys(runtime.input(), renderer);
 
     const auto& window = runtime.window_state();
     if (window.resized_this_frame) renderer.request_resize(window.width, window.height);
@@ -263,6 +306,7 @@ int main(int argc, char** argv) {
     bloom.threshold = scene.lighting_settings().bloom.threshold;
     bloom.intensity = scene.lighting_settings().bloom.intensity;
 
+    const auto shadow_start = std::chrono::steady_clock::now();
     const render::rendering::LightingFrameData lighting_frame = render::rendering::build_forward_plus_frame_data(
       camera_position,
       directional_lights,
@@ -273,8 +317,15 @@ int main(int argc, char** argv) {
       bloom,
       {},
       {});
+    const auto shadow_end = std::chrono::steady_clock::now();
+    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{
+      .pass_name = "shadow-pass(plan)",
+      .cpu_ms = static_cast<float>(std::chrono::duration<double, std::milli>(shadow_end - shadow_start).count()),
+      .gpu_ms = std::nullopt,
+    });
     (void)lighting_frame;
 
+    const auto main_pass_start = std::chrono::steady_clock::now();
     render::rendering::SubmissionDiagnostics diagnostics{};
     const auto batches = render::rendering::build_draw_batches(submissions, {}, &diagnostics);
     for (const auto& batch : batches) {
@@ -290,12 +341,32 @@ int main(int argc, char** argv) {
         renderer.submit(kMainView, batch.unique_draws.front());
       }
     }
+    const auto main_pass_end = std::chrono::steady_clock::now();
+    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{
+      .pass_name = "main-lit-pass",
+      .cpu_ms = static_cast<float>(std::chrono::duration<double, std::milli>(main_pass_end - main_pass_start).count()),
+      .gpu_ms = std::nullopt,
+    });
+    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{.pass_name = "bloom-pass(plan)", .cpu_ms = 0.0F, .gpu_ms = std::nullopt});
+    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{.pass_name = "outline-pass(plan)", .cpu_ms = 0.0F, .gpu_ms = std::nullopt});
+    renderer.add_debug_pass_timing(render::rendering::RendererPassTiming{.pass_name = "composite-present", .cpu_ms = 0.0F, .gpu_ms = std::nullopt});
+    renderer.set_debug_counters(render::rendering::RendererDebugCounters{
+      .visible_directional_lights = static_cast<std::uint32_t>(directional_lights.size()),
+      .visible_point_lights = static_cast<std::uint32_t>(point_lights.size()),
+      .submitted_draws = diagnostics.submitted_draws,
+      .instanced_draws = diagnostics.instanced_draws,
+      .submitted_instances = diagnostics.submitted_instances,
+    });
 
     renderer.end_frame();
     runtime.end_frame();
   }
 
   renderer.destroy_program(program);
+  renderer.destroy_program(debug_normals);
+  renderer.destroy_program(debug_albedo);
+  renderer.destroy_program(debug_depth);
+  renderer.destroy_program(debug_overdraw);
   renderer.destroy_buffer(mesh_buffer);
   renderer.destroy_buffer(index_buffer);
   renderer.shutdown();
