@@ -122,6 +122,13 @@ std::vector<std::string> RendererDebugState::build_overlay_lines() const {
          << " frame_ms=" << snapshot_.frame_time_ms;
   lines.push_back(counts.str());
 
+  std::ostringstream vfx_counts;
+  vfx_counts << "vfx effects=" << snapshot_.counters.vfx_active_effects
+             << " particles=" << snapshot_.counters.vfx_active_particles
+             << " draws=" << snapshot_.counters.vfx_draw_calls
+             << " uploads=" << snapshot_.counters.vfx_instance_uploads;
+  lines.push_back(vfx_counts.str());
+
   if (!snapshot_.gpu_timing_supported) {
     lines.push_back("gpu timing unavailable (using cpu pass timings)");
   }

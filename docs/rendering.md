@@ -7,6 +7,7 @@
 - Statement 11: scene graph integration (camera/light/renderable extraction).
 - Statement 12: geometry submission + batching foundation.
 - Statement 13: forward-plus style lighting data path (light selection, fog/bloom/shadow/outline settings, and diagnostics).
+- Statement 15: ambient VFX system for spores/dust/embers/resin drips/glow pulses/market ambience.
 
 ## Engine-owned shader architecture
 
@@ -251,3 +252,19 @@ Tracked pass rows currently include:
 - composite/present placeholder
 
 This keeps the instrumentation API stable while deferring backend-specific GPU timer query plumbing to a follow-up statement.
+
+
+## Ambient VFX layer (Statement 15)
+
+Statement 15 adds `engine/render/vfx.*` as a renderer-owned ambient effect subsystem with scene attachment support.
+
+Highlights:
+
+- typed effect definitions + reusable presets (spores, dust, embers, resin drips, glow pulses, market ambience)
+- deterministic CPU simulation with seeded initialization
+- GPU instanced sprite submission through existing renderer APIs
+- scene integration via `scene::VfxAttachmentComponent` and visibility filtering
+- debug counters for VFX active effects/particles/draws/uploads
+- shader pipeline integration through `vfx/ambient_sprite` manifest entries and variants
+
+Detailed design and current limits are documented in `docs/vfx.md`.

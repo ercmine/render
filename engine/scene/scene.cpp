@@ -56,6 +56,7 @@ SceneNodeId Scene::create_node(std::string debug_name) {
   record.camera.reset();
   record.light.reset();
   record.renderable.reset();
+  record.vfx_attachment.reset();
 
   const SceneNodeId node{index, record.generation};
   RENDER_LOG_INFO("scene", "create node idx=", node.index, " name='", record.debug_name, "'");
@@ -298,6 +299,32 @@ const RenderableComponent* Scene::renderable(const SceneNodeId node) const {
   return &record->renderable.value();
 }
 
+bool Scene::set_vfx_attachment(const SceneNodeId node, const VfxAttachmentComponent& attachment_component) {
+  NodeRecord* record = lookup(node);
+  if (record == nullptr) {
+    return false;
+  }
+  record->vfx_attachment = attachment_component;
+  return true;
+}
+
+bool Scene::clear_vfx_attachment(const SceneNodeId node) {
+  NodeRecord* record = lookup(node);
+  if (record == nullptr) {
+    return false;
+  }
+  record->vfx_attachment.reset();
+  return true;
+}
+
+const VfxAttachmentComponent* Scene::vfx_attachment(const SceneNodeId node) const {
+  const NodeRecord* record = lookup(node);
+  if (record == nullptr || !record->vfx_attachment.has_value()) {
+    return nullptr;
+  }
+  return &record->vfx_attachment.value();
+}
+
 bool Scene::set_active_camera(const SceneNodeId node) {
   const NodeRecord* record = lookup(node);
   if (record == nullptr || !record->camera.has_value()) {
@@ -462,6 +489,29 @@ std::vector<VisibleRenderable> Scene::collect_highlighted_renderables(const std:
   return out;
 }
 
+std::vector<VisibleVfxAttachment> Scene::collect_visible_vfx_attachments(const std::uint32_t layer_mask) const {
+  std::vector<VisibleVfxAttachment> out;
+  out.reserve(nodes_.size());
+  walk_depth_first([this, &out, layer_mask](const SceneNodeId node) {
+    const NodeRecord* record = lookup(node);
+    if (record == nullptr || !record->visibility.enabled || !record->vfx_attachment.has_value()) {
+      return;
+    }
+
+    const VfxAttachmentComponent& attachment_component = record->vfx_attachment.value();
+    if (!attachment_component.enabled) {
+      return;
+    }
+
+    if ((record->visibility.layer_mask & layer_mask) == 0U || (attachment_component.layer_mask & layer_mask) == 0U) {
+      return;
+    }
+
+    out.push_back({.node = node, .attachment = &attachment_component, .world_transform = &record->world});
+  });
+  return out;
+}
+
 void Scene::set_lighting_settings(const SceneLightingSettings& settings) {
   lighting_settings_ = settings;
 }
@@ -618,6 +668,7 @@ void Scene::destroy_subtree(const SceneNodeId node) {
     record->camera.reset();
     record->light.reset();
     record->renderable.reset();
+    record->vfx_attachment.reset();
     ++record->generation;
     free_indices_.push_back(it->index);
     RENDER_LOG_INFO("scene", "destroy node idx=", it->index);

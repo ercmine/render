@@ -76,6 +76,13 @@ struct RenderableComponent {
   bool highlighted{false};
 };
 
+
+struct VfxAttachmentComponent {
+  bool enabled{true};
+  std::uint32_t layer_mask{kVisibilityAll};
+  std::uint32_t effect_handle{0};
+};
+
 struct SceneFogSettings {
   bool enabled{false};
   core::Vec3 color{0.07F, 0.08F, 0.10F};
@@ -110,6 +117,12 @@ struct VisibleRenderable {
 struct VisibleLight {
   SceneNodeId node{};
   const LightComponent* light{nullptr};
+  const core::Transform* world_transform{nullptr};
+};
+
+struct VisibleVfxAttachment {
+  SceneNodeId node{};
+  const VfxAttachmentComponent* attachment{nullptr};
   const core::Transform* world_transform{nullptr};
 };
 
@@ -150,6 +163,10 @@ public:
   bool clear_renderable(SceneNodeId node);
   [[nodiscard]] const RenderableComponent* renderable(SceneNodeId node) const;
 
+  bool set_vfx_attachment(SceneNodeId node, const VfxAttachmentComponent& attachment);
+  bool clear_vfx_attachment(SceneNodeId node);
+  [[nodiscard]] const VfxAttachmentComponent* vfx_attachment(SceneNodeId node) const;
+
   bool set_active_camera(SceneNodeId node);
   void clear_active_camera();
   [[nodiscard]] std::optional<SceneNodeId> active_camera() const { return active_camera_; }
@@ -160,6 +177,7 @@ public:
   [[nodiscard]] std::vector<VisibleRenderable> collect_visible_renderables(std::uint32_t layer_mask = kVisibilityAll) const;
   [[nodiscard]] std::vector<VisibleLight> collect_visible_lights(std::uint32_t layer_mask = kVisibilityAll) const;
   [[nodiscard]] std::vector<VisibleRenderable> collect_highlighted_renderables(std::uint32_t layer_mask = kVisibilityAll) const;
+  [[nodiscard]] std::vector<VisibleVfxAttachment> collect_visible_vfx_attachments(std::uint32_t layer_mask = kVisibilityAll) const;
 
   void set_lighting_settings(const SceneLightingSettings& settings);
   [[nodiscard]] const SceneLightingSettings& lighting_settings() const noexcept;
@@ -182,6 +200,7 @@ private:
     std::optional<CameraComponent> camera{};
     std::optional<LightComponent> light{};
     std::optional<RenderableComponent> renderable{};
+    std::optional<VfxAttachmentComponent> vfx_attachment{};
   };
 
   [[nodiscard]] NodeRecord* lookup(SceneNodeId node);

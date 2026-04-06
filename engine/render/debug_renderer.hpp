@@ -31,6 +31,10 @@ struct RendererDebugCounters {
   std::uint32_t submitted_draws{0};
   std::uint32_t instanced_draws{0};
   std::uint32_t submitted_instances{0};
+  std::uint32_t vfx_active_effects{0};
+  std::uint32_t vfx_active_particles{0};
+  std::uint32_t vfx_draw_calls{0};
+  std::uint32_t vfx_instance_uploads{0};
 };
 
 struct RendererPassTiming {
