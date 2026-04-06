@@ -25,11 +25,17 @@ public:
   void shutdown();
 
   [[nodiscard]] bool is_initialized() const noexcept;
+  [[nodiscard]] bool is_ready() const noexcept;
+  [[nodiscard]] bool can_render() const noexcept;
+  [[nodiscard]] RendererLifecycleState state() const noexcept;
+  [[nodiscard]] RendererStatus status() const noexcept;
   [[nodiscard]] RendererCaps capabilities() const;
   [[nodiscard]] RendererBackend backend() const noexcept;
 
-  void begin_frame();
-  void end_frame();
+  [[nodiscard]] bool begin_frame();
+  [[nodiscard]] bool end_frame();
+  void request_resize(std::uint32_t width, std::uint32_t height);
+  [[nodiscard]] bool try_recover();
   void resize(std::uint32_t width, std::uint32_t height);
 
   void set_debug_enabled(bool enabled);

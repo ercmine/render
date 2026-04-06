@@ -10,12 +10,16 @@
 #include <bgfx/platform.h>
 #include <bimg/decode.h>
 
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
 namespace render::rendering {
 namespace {
+
+constexpr std::uint16_t kMainView = 0;
 
 bgfx::RendererType::Enum to_bgfx_renderer_type(const RendererBackend backend) {
   switch (backend) {
@@ -116,20 +120,137 @@ RendererBackend to_backend(bgfx::RendererType::Enum type) {
   }
 }
 
+constexpr std::uint32_t minimum_dimension(std::uint32_t value) {
+  return std::max<std::uint32_t>(value, 1U);
+}
+
 }  // namespace
+
+const char* to_string(const RendererBackend backend) noexcept {
+  switch (backend) {
+    case RendererBackend::Auto: return "auto";
+    case RendererBackend::Noop: return "noop";
+    case RendererBackend::Direct3D11: return "d3d11";
+    case RendererBackend::Direct3D12: return "d3d12";
+    case RendererBackend::Metal: return "metal";
+    case RendererBackend::Vulkan: return "vulkan";
+    case RendererBackend::OpenGL: return "opengl";
+    default: return "unknown";
+  }
+}
+
+const char* to_string(const RendererLifecycleState state) noexcept {
+  switch (state) {
+    case RendererLifecycleState::Uninitialized: return "uninitialized";
+    case RendererLifecycleState::Initializing: return "initializing";
+    case RendererLifecycleState::Ready: return "ready";
+    case RendererLifecycleState::Resizing: return "resizing";
+    case RendererLifecycleState::Recovering: return "recovering";
+    case RendererLifecycleState::ShuttingDown: return "shutting-down";
+    case RendererLifecycleState::Failed: return "failed";
+    default: return "unknown";
+  }
+}
+
+RendererConfigValidation validate_renderer_config(const RendererConfig& config) {
+  if (config.width == 0U || config.height == 0U) {
+    return {.valid = false, .reason = "initial dimensions must be greater than zero"};
+  }
+  if (config.min_frame_time_ms > 1000U) {
+    return {.valid = false, .reason = "min_frame_time_ms must be <= 1000"};
+  }
+  return {.valid = true, .reason = {}};
+}
 
 struct Renderer::Impl {
   RendererConfig config{};
+  RendererLifecycleState lifecycle{RendererLifecycleState::Uninitialized};
   RendererBackend selected_backend{RendererBackend::Auto};
-  bool initialized{false};
   std::uint32_t reset_flags{BGFX_RESET_NONE};
+  std::uint32_t backbuffer_width{0};
+  std::uint32_t backbuffer_height{0};
+  std::uint32_t pending_width{0};
+  std::uint32_t pending_height{0};
+  bool has_pending_resize{false};
+  bool frame_active{false};
+  bool device_lost{false};
+  bool bgfx_initialized{false};
+  std::uint64_t frame_count{0};
+  std::chrono::steady_clock::time_point frame_begin_time{};
+  std::uint32_t last_frame_time_ms{0};
 
-  [[nodiscard]] static std::uint32_t reset_flags_from_config(const RendererConfig& config) {
-    std::uint32_t flags = BGFX_RESET_NONE;
+  [[nodiscard]] bool is_initialized() const noexcept {
+    return bgfx_initialized;
+  }
+
+  [[nodiscard]] bool can_render() const noexcept {
+    return lifecycle == RendererLifecycleState::Ready && backbuffer_width > 0U && backbuffer_height > 0U;
+  }
+
+  [[nodiscard]] std::uint32_t reset_flags_from_config() const {
+    std::uint32_t flags = config.reset_flags;
     if (config.vsync) {
       flags |= BGFX_RESET_VSYNC;
+    } else {
+      flags &= ~BGFX_RESET_VSYNC;
     }
     return flags;
+  }
+
+  void set_lifecycle(const RendererLifecycleState state) {
+    lifecycle = state;
+    platform::log::info(std::string{"Renderer state -> "} + to_string(lifecycle));
+  }
+
+  void queue_resize(const std::uint32_t width, const std::uint32_t height) {
+    const std::uint32_t clamped_width = width;
+    const std::uint32_t clamped_height = height;
+    if (has_pending_resize && pending_width == clamped_width && pending_height == clamped_height) {
+      return;
+    }
+
+    pending_width = clamped_width;
+    pending_height = clamped_height;
+    has_pending_resize = true;
+  }
+
+  void apply_resize_if_needed() {
+    if (!has_pending_resize) {
+      return;
+    }
+
+    has_pending_resize = false;
+    if (pending_width == 0U || pending_height == 0U) {
+      backbuffer_width = pending_width;
+      backbuffer_height = pending_height;
+      platform::log::info("Renderer resize deferred while window is minimized (zero dimension)");
+      return;
+    }
+
+    set_lifecycle(RendererLifecycleState::Resizing);
+    backbuffer_width = pending_width;
+    backbuffer_height = pending_height;
+    bgfx::reset(backbuffer_width, backbuffer_height, reset_flags);
+
+    std::ostringstream resize_log;
+    resize_log << "Renderer resize applied: " << backbuffer_width << "x" << backbuffer_height;
+    platform::log::info(resize_log.str());
+    set_lifecycle(RendererLifecycleState::Ready);
+  }
+
+  RendererStatus make_status() const {
+    RendererStatus status{};
+    status.state = lifecycle;
+    status.selected_backend = selected_backend;
+    status.frame.frame_count = frame_count;
+    status.frame.backbuffer_width = backbuffer_width;
+    status.frame.backbuffer_height = backbuffer_height;
+    status.frame.last_frame_time_ms = last_frame_time_ms;
+    status.frame.vsync_enabled = (reset_flags & BGFX_RESET_VSYNC) != 0U;
+    status.frame.frame_active = frame_active;
+    status.device_lost = device_lost;
+    status.can_render = can_render();
+    return status;
   }
 };
 
@@ -141,12 +262,29 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::initialize(const RendererConfig& config, const platform::PlatformRuntime& runtime) {
-  if (impl_->initialized) {
+  if (impl_->lifecycle == RendererLifecycleState::Initializing) {
+    platform::log::warn("Renderer initialization requested while already initializing");
+    return false;
+  }
+
+  if (impl_->lifecycle == RendererLifecycleState::Ready) {
+    platform::log::warn("Renderer initialization requested while already ready");
     return true;
   }
 
+  const RendererConfigValidation validation = validate_renderer_config(config);
+  if (!validation.valid) {
+    platform::log::error(std::string{"Renderer init failed: invalid config: "} + validation.reason);
+    impl_->set_lifecycle(RendererLifecycleState::Failed);
+    return false;
+  }
+
+  impl_->set_lifecycle(RendererLifecycleState::Initializing);
   impl_->config = config;
-  impl_->reset_flags = Impl::reset_flags_from_config(config);
+  impl_->reset_flags = impl_->reset_flags_from_config();
+  impl_->device_lost = false;
+  impl_->frame_active = false;
+  impl_->has_pending_resize = false;
 
   bgfx::Init init{};
   init.type = to_bgfx_renderer_type(config.backend);
@@ -157,24 +295,44 @@ bool Renderer::initialize(const RendererConfig& config, const platform::Platform
   auto* sdl_window = static_cast<SDL_Window*>(runtime.native_window_handle());
   if (sdl_window == nullptr) {
     platform::log::error("Renderer init failed: runtime window handle was null");
+    impl_->set_lifecycle(RendererLifecycleState::Failed);
     return false;
   }
 
   set_platform_data_from_sdl(init, sdl_window);
 
+  std::ostringstream request_log;
+  request_log << "Renderer init requested backend=" << to_string(config.backend)
+              << " size=" << config.width << "x" << config.height
+              << " vsync=" << (config.vsync ? "on" : "off")
+              << " debug=" << (config.debug ? "on" : "off");
+  platform::log::info(request_log.str());
+
   if (!bgfx::init(init)) {
     platform::log::error("Renderer init failed: bgfx::init returned false");
+    impl_->set_lifecycle(RendererLifecycleState::Failed);
     return false;
   }
+  impl_->bgfx_initialized = true;
 
   impl_->selected_backend = to_backend(bgfx::getRendererType());
+  impl_->backbuffer_width = config.width;
+  impl_->backbuffer_height = config.height;
 
   const std::uint32_t debug_flags = config.debug ? BGFX_DEBUG_TEXT : BGFX_DEBUG_NONE;
   bgfx::setDebug(debug_flags);
 
   std::ostringstream backend_log;
-  backend_log << "Renderer initialized with backend: " << renderer_name(bgfx::getRendererType());
+  backend_log << "Renderer backend selected requested=" << to_string(config.backend)
+              << " actual=" << renderer_name(bgfx::getRendererType());
   platform::log::info(backend_log.str());
+
+  if (is_explicit_backend_request(config.backend) && config.backend != impl_->selected_backend) {
+    std::ostringstream mismatch_log;
+    mismatch_log << "Requested backend " << to_string(config.backend)
+                 << " not selected, running on " << to_string(impl_->selected_backend);
+    platform::log::warn(mismatch_log.str());
+  }
 
   if (const bgfx::Caps* caps = bgfx::getCaps(); caps != nullptr) {
     std::ostringstream caps_log;
@@ -184,25 +342,61 @@ bool Renderer::initialize(const RendererConfig& config, const platform::Platform
     platform::log::info(caps_log.str());
   }
 
-  impl_->initialized = true;
+  bgfx::setViewRect(kMainView, 0, 0, static_cast<std::uint16_t>(minimum_dimension(config.width)), static_cast<std::uint16_t>(minimum_dimension(config.height)));
+  bgfx::setViewClear(kMainView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x1f2233ff, 1.0F, 0);
+
+  impl_->set_lifecycle(RendererLifecycleState::Ready);
   return true;
 }
 
 void Renderer::shutdown() {
-  if (impl_ == nullptr || !impl_->initialized) {
+  if (impl_ == nullptr || impl_->lifecycle == RendererLifecycleState::Uninitialized) {
     return;
   }
 
-  bgfx::shutdown();
-  impl_->initialized = false;
+  impl_->set_lifecycle(RendererLifecycleState::ShuttingDown);
+  if (impl_->frame_active) {
+    platform::log::warn("Renderer shutdown while a frame is active; ending frame implicitly");
+    bgfx::frame();
+    impl_->frame_active = false;
+  }
+
+  if (impl_->is_initialized()) {
+    bgfx::shutdown();
+    impl_->bgfx_initialized = false;
+  }
+
+  impl_->selected_backend = RendererBackend::Auto;
+  impl_->backbuffer_width = 0;
+  impl_->backbuffer_height = 0;
+  impl_->has_pending_resize = false;
+  impl_->set_lifecycle(RendererLifecycleState::Uninitialized);
 }
 
-bool Renderer::is_initialized() const noexcept { return impl_->initialized; }
+bool Renderer::is_initialized() const noexcept {
+  return impl_->lifecycle != RendererLifecycleState::Uninitialized;
+}
+
+bool Renderer::is_ready() const noexcept {
+  return impl_->lifecycle == RendererLifecycleState::Ready;
+}
+
+bool Renderer::can_render() const noexcept {
+  return impl_->can_render();
+}
+
+RendererLifecycleState Renderer::state() const noexcept {
+  return impl_->lifecycle;
+}
+
+RendererStatus Renderer::status() const noexcept {
+  return impl_->make_status();
+}
 
 RendererCaps Renderer::capabilities() const {
   RendererCaps caps{};
 
-  if (!impl_->initialized) {
+  if (impl_->lifecycle != RendererLifecycleState::Ready) {
     return caps;
   }
 
@@ -220,40 +414,114 @@ RendererCaps Renderer::capabilities() const {
 
 RendererBackend Renderer::backend() const noexcept { return impl_->selected_backend; }
 
-void Renderer::begin_frame() {
-  if (!impl_->initialized) {
-    return;
+bool Renderer::begin_frame() {
+  if (impl_->lifecycle == RendererLifecycleState::Failed) {
+    if (impl_->config.allow_automatic_recovery) {
+      return try_recover();
+    }
+    return false;
   }
+
+  if (impl_->lifecycle != RendererLifecycleState::Ready) {
+    platform::log::warn(std::string{"begin_frame ignored in state "} + to_string(impl_->lifecycle));
+    return false;
+  }
+
+  if (impl_->frame_active) {
+    platform::log::warn("begin_frame called while frame already active");
+    return false;
+  }
+
+  impl_->apply_resize_if_needed();
+  if (!impl_->can_render()) {
+    return false;
+  }
+
+  impl_->frame_active = true;
+  impl_->frame_begin_time = std::chrono::steady_clock::now();
 
   if (impl_->config.debug) {
     bgfx::dbgTextClear();
     bgfx::dbgTextPrintf(0, 0, 0x0f, "render :: backend %s", renderer_name(bgfx::getRendererType()));
   }
+
+  return true;
 }
 
-void Renderer::end_frame() {
-  if (!impl_->initialized) {
+bool Renderer::end_frame() {
+  if (impl_->lifecycle != RendererLifecycleState::Ready) {
+    return false;
+  }
+
+  if (!impl_->frame_active) {
+    platform::log::warn("end_frame called without begin_frame");
+    return false;
+  }
+
+  bgfx::frame();
+  impl_->frame_active = false;
+  impl_->frame_count += 1;
+
+  const auto now = std::chrono::steady_clock::now();
+  impl_->last_frame_time_ms = static_cast<std::uint32_t>(
+    std::chrono::duration_cast<std::chrono::milliseconds>(now - impl_->frame_begin_time).count());
+
+  if (impl_->config.min_frame_time_ms > 0U && impl_->last_frame_time_ms < impl_->config.min_frame_time_ms) {
+    const std::uint32_t sleep_ms = impl_->config.min_frame_time_ms - impl_->last_frame_time_ms;
+    platform::PlatformRuntime::sleep_for_milliseconds(sleep_ms);
+    impl_->last_frame_time_ms = impl_->config.min_frame_time_ms;
+  }
+
+  return true;
+}
+
+void Renderer::request_resize(const std::uint32_t width, const std::uint32_t height) {
+  if (impl_->lifecycle != RendererLifecycleState::Ready && impl_->lifecycle != RendererLifecycleState::Recovering) {
     return;
   }
-  bgfx::frame();
+
+  if (width == impl_->backbuffer_width && height == impl_->backbuffer_height) {
+    return;
+  }
+
+  impl_->queue_resize(width, height);
+}
+
+bool Renderer::try_recover() {
+  if (impl_->lifecycle != RendererLifecycleState::Failed && impl_->lifecycle != RendererLifecycleState::Recovering) {
+    return impl_->lifecycle == RendererLifecycleState::Ready;
+  }
+
+  impl_->set_lifecycle(RendererLifecycleState::Recovering);
+  impl_->device_lost = true;
+
+  if (impl_->backbuffer_width == 0U || impl_->backbuffer_height == 0U) {
+    platform::log::warn("Renderer recovery delayed because backbuffer dimensions are zero");
+    impl_->set_lifecycle(RendererLifecycleState::Failed);
+    return false;
+  }
+
+  bgfx::reset(impl_->backbuffer_width, impl_->backbuffer_height, impl_->reset_flags);
+  impl_->device_lost = false;
+  impl_->set_lifecycle(RendererLifecycleState::Ready);
+  platform::log::info("Renderer recovery succeeded using bgfx::reset");
+  return true;
 }
 
 void Renderer::resize(const std::uint32_t width, const std::uint32_t height) {
-  if (!impl_->initialized) {
-    return;
-  }
-  bgfx::reset(width, height, impl_->reset_flags);
+  request_resize(width, height);
+  impl_->apply_resize_if_needed();
 }
 
 void Renderer::set_debug_enabled(const bool enabled) {
   impl_->config.debug = enabled;
-  if (impl_->initialized) {
+  if (impl_->lifecycle == RendererLifecycleState::Ready) {
     bgfx::setDebug(enabled ? BGFX_DEBUG_TEXT : BGFX_DEBUG_NONE);
   }
 }
 
 void Renderer::set_view(const ViewId view, const ViewDescription& desc) {
-  if (!impl_->initialized) {
+  if (!impl_->can_render()) {
     return;
   }
 
@@ -277,14 +545,14 @@ void Renderer::set_view_transform(
   const ViewId view,
   const std::span<const float, 16> view_transform,
   const std::span<const float, 16> projection) {
-  if (!impl_->initialized) {
+  if (!impl_->can_render()) {
     return;
   }
   bgfx::setViewTransform(view.value, view_transform.data(), projection.data());
 }
 
 VertexBufferHandle Renderer::create_vertex_buffer(const VertexBufferDescription& desc) {
-  if (!impl_->initialized || desc.data.empty()) {
+  if (!impl_->can_render() || desc.data.empty()) {
     return {};
   }
 
@@ -306,7 +574,7 @@ VertexBufferHandle Renderer::create_vertex_buffer(const VertexBufferDescription&
 }
 
 IndexBufferHandle Renderer::create_index_buffer(const IndexBufferDescription& desc) {
-  if (!impl_->initialized || desc.data.empty()) {
+  if (!impl_->can_render() || desc.data.empty()) {
     return {};
   }
 
@@ -316,7 +584,7 @@ IndexBufferHandle Renderer::create_index_buffer(const IndexBufferDescription& de
 }
 
 ProgramHandle Renderer::create_program(const ShaderProgramDescription& desc) {
-  if (!impl_->initialized) {
+  if (!impl_->can_render()) {
     return {};
   }
 
@@ -348,7 +616,7 @@ ProgramHandle Renderer::create_program(const ShaderProgramDescription& desc) {
 }
 
 TextureHandle Renderer::create_solid_color_texture(const SolidColorTextureDescription& desc) {
-  if (!impl_->initialized) {
+  if (!impl_->can_render()) {
     return {};
   }
 
@@ -385,31 +653,31 @@ TextureHandle Renderer::create_solid_color_texture(const SolidColorTextureDescri
 }
 
 void Renderer::destroy_buffer(const VertexBufferHandle handle) {
-  if (impl_->initialized && handle.idx != kInvalidHandle) {
+  if (impl_->lifecycle == RendererLifecycleState::Ready && handle.idx != kInvalidHandle) {
     bgfx::destroy(bgfx::VertexBufferHandle{handle.idx});
   }
 }
 
 void Renderer::destroy_buffer(const IndexBufferHandle handle) {
-  if (impl_->initialized && handle.idx != kInvalidHandle) {
+  if (impl_->lifecycle == RendererLifecycleState::Ready && handle.idx != kInvalidHandle) {
     bgfx::destroy(bgfx::IndexBufferHandle{handle.idx});
   }
 }
 
 void Renderer::destroy_program(const ProgramHandle handle) {
-  if (impl_->initialized && handle.idx != kInvalidHandle) {
+  if (impl_->lifecycle == RendererLifecycleState::Ready && handle.idx != kInvalidHandle) {
     bgfx::destroy(bgfx::ProgramHandle{handle.idx});
   }
 }
 
 void Renderer::destroy_texture(const TextureHandle handle) {
-  if (impl_->initialized && handle.idx != kInvalidHandle) {
+  if (impl_->lifecycle == RendererLifecycleState::Ready && handle.idx != kInvalidHandle) {
     bgfx::destroy(bgfx::TextureHandle{handle.idx});
   }
 }
 
 void Renderer::submit(const ViewId view, const MeshSubmission& mesh_submission) {
-  if (!impl_->initialized) {
+  if (!impl_->can_render()) {
     return;
   }
 

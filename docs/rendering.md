@@ -1,52 +1,109 @@
-# Renderer Integration (Statement 4)
+# Renderer Runtime Lifecycle (Statement 9)
 
 ## Scope
 
-Statement 4 introduces a renderer foundation powered by bgfx/bx/bimg but exposed through engine-owned interfaces.
+Statement 9 hardens renderer runtime behavior around startup, backend selection, frame flow, resize handling, frame pacing, and recovery-oriented state management.
 
-## Where code lives
+## Lifecycle model
 
-- Public interfaces and engine-owned types: `engine/render/*.hpp`
-- bgfx backend implementation: `engine/render/bgfx/renderer_bgfx.cpp`
-- Shader sources: `shaders/src/*.sc`
-- Shader build hook: `cmake/ShaderCompilation.cmake`, `cmake/compile_shaders.cmake`
+`render::rendering::Renderer` now owns an explicit lifecycle state machine:
 
-## Allowed direct third-party usage
+- `Uninitialized`
+- `Initializing`
+- `Ready`
+- `Resizing`
+- `Recovering`
+- `ShuttingDown`
+- `Failed`
 
-- `engine/render/bgfx/*`: may include and call bgfx/bx/bimg APIs
-- `engine/platform/sdl/*`: may include and call SDL APIs
+The runtime shell and future systems can query:
 
-All other engine/gameplay modules should stay on engine-owned types.
+- `state()`
+- `is_ready()`
+- `can_render()`
+- `status()` (`RendererStatus` snapshot including frame stats)
 
-## SDL window handoff
+The renderer logs every lifecycle transition.
 
-Renderer initialization receives `PlatformRuntime` and reads the SDL window pointer through `native_window_handle()`.
-The bgfx backend extracts native platform handles from SDL window properties and fills `bgfx::Init::platformData`.
+## Startup and backend selection
 
-## Current renderer API coverage
+Startup is configuration-driven via `RendererConfig`:
 
-- lifecycle (`initialize`, `shutdown`)
-- backend selection (`RendererBackend`)
-- frame flow (`begin_frame`, `end_frame`, `resize`)
-- view setup (`set_view`, `set_view_transform`)
-- resource creation (`create_vertex_buffer`, `create_index_buffer`, `create_program`, `create_solid_color_texture`)
-- draw submission (`submit`)
-- diagnostics (`capabilities`, debug text)
+- `backend` (engine-owned enum, auto or explicit)
+- `width`, `height`
+- `debug`
+- `vsync`
+- `reset_flags` (engine-owned config mask)
+- `min_frame_time_ms` (lightweight frame pacing floor)
+- `allow_automatic_recovery`
 
-## Current validation target
+Validation is explicit through `validate_renderer_config(...)`.
+
+Backend behavior:
+
+1. Engine backend enum maps to bgfx renderer type internally.
+2. Requested backend and actual backend are both logged.
+3. Explicit requests that are not selected log a warning and continue with the chosen backend.
+
+## Frame lifecycle contract
+
+Per-frame flow is now explicit and misuse-resistant:
+
+1. `begin_frame()`
+   - rejects invalid states
+   - detects begin/begin misuse
+   - applies deferred resize
+   - returns `false` when rendering should be skipped (minimized/invalid state)
+2. app records view setup + submissions
+3. `end_frame()`
+   - detects end without begin
+   - presents (`bgfx::frame()`)
+   - records frame stats and optional pacing sleep
+
+This creates a stable contract for future view/pass expansion without redesigning loop ownership.
+
+## Resize policy
+
+Resize is explicit and resilient:
+
+- shell forwards resize events with `request_resize(width, height)`
+- resize requests are deduplicated and applied at frame boundary
+- zero/minimized dimensions are treated as non-renderable and do not hard-fail the renderer
+- rendering automatically resumes when a valid size arrives
+
+## Frame pacing policy (current stage)
+
+Current pacing is intentionally lightweight:
+
+- primary pacing remains present/vsync (`vsync` + reset flags)
+- optional minimum frame duration (`min_frame_time_ms`) prevents runaway present loops when desired
+- no simulation scheduler or fixed-step governor is introduced at this stage
+
+## Recovery/device-loss philosophy
+
+A sane engine-owned recovery path is established:
+
+- failed/recovery states are explicit
+- `try_recover()` attempts an in-place reset path (`bgfx::reset`) using current backbuffer
+- automatic recovery attempts are gated by `allow_automatic_recovery`
+- recovery attempts and outcomes are logged
+
+This is a practical base for later full resource re-creation pipelines.
+
+## Runtime shell integration
 
 `render_shell` now:
 
-1. starts SDL runtime/window
-2. initializes renderer with config
-3. clears the main view every frame
-4. submits a simple indexed triangle when shader binaries are available
-5. handles resize and clean shutdown
+- forwards platform resize events through `request_resize`
+- gates rendering work on `begin_frame()` success
+- avoids undefined frame flow when minimized or otherwise non-renderable
+- keeps shutdown ordered (`destroy resources` -> `renderer.shutdown()` -> `runtime.shutdown()`)
 
-## Follow-up work (later statements)
+## Current non-goals / deferred work
 
-- richer resource lifetime/allocator systems
-- robust shader pipeline tooling and packaging
-- material and scene rendering systems
-- texture/image asset loading pipeline
-- render graph/pass scheduling
+Still deferred to later statements:
+
+- full multi-device-loss backend edge-case matrix
+- explicit persistent resource registry for automated rebuild
+- render graph and multi-pass scheduling
+- scene/material-driven rendering orchestration
