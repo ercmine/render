@@ -1,0 +1,83 @@
+name: PR Validation
+
+on:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-full
+            os: ubuntu-latest
+            configure_preset: linux-ci
+            build_preset: linux-ci
+            build_config_flag: ""
+            full_validation: true
+          - name: macos-build-test
+            os: macos-latest
+            configure_preset: macos-debug
+            build_preset: macos-debug
+            build_config_flag: ""
+            full_validation: false
+          - name: windows-build-test
+            os: windows-latest
+            configure_preset: windows-debug
+            build_preset: windows-debug
+            build_config_flag: --config Debug
+            full_validation: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: .fc
+          key: ${{ runner.os }}-fc-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake', 'CMakePresets.json') }}
+
+      - name: Configure
+        run: >-
+          cmake --preset ${{ matrix.configure_preset }}
+          -DRENDER_ALLOW_FETCHCONTENT=ON
+          -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.fc
+
+      - name: Build
+        run: >-
+          cmake --build --preset ${{ matrix.build_preset }}
+          ${{ matrix.build_config_flag }}
+
+      - name: Run unit tests
+        run: >-
+          ctest --test-dir out/build/${{ matrix.configure_preset }}
+          ${{ matrix.os == 'windows-latest' && '-C Debug' || '' }}
+          --output-on-failure -L unit
+
+      - name: Run headless smoke validation
+        run: >-
+          ctest --test-dir out/build/${{ matrix.configure_preset }}
+          ${{ matrix.os == 'windows-latest' && '-C Debug' || '' }}
+          --output-on-failure -L headless
+
+      - name: Run shader and packaging checks (Linux full lane)
+        if: matrix.full_validation
+        run: |
+          cmake --build --preset ${{ matrix.build_preset }} --target render_shader_check
+          cmake --build --preset ${{ matrix.build_preset }} --target render_package_validate
+
+      - name: Upload Linux validation artifacts
+        if: matrix.full_validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ matrix.name }}
+          path: |
+            out/build/${{ matrix.configure_preset }}/logs
+            out/build/${{ matrix.configure_preset }}/Testing/Temporary
+            out/build/${{ matrix.configure_preset }}/package
+          if-no-files-found: warn

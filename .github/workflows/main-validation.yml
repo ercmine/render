@@ -1,0 +1,79 @@
+name: Main Validation
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  full-validation:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-full-release
+            os: ubuntu-latest
+            configure_preset: linux-ci
+            build_preset: linux-ci
+            build_config_flag: ""
+            run_full: true
+          - name: macos-build-test
+            os: macos-latest
+            configure_preset: macos-release
+            build_preset: macos-release
+            build_config_flag: ""
+            run_full: false
+          - name: windows-build-test
+            os: windows-latest
+            configure_preset: windows-release
+            build_preset: windows-release
+            build_config_flag: --config Release
+            run_full: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: .fc
+          key: ${{ runner.os }}-fc-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake', 'CMakePresets.json') }}
+
+      - name: Configure
+        run: >-
+          cmake --preset ${{ matrix.configure_preset }}
+          -DRENDER_ALLOW_FETCHCONTENT=ON
+          -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.fc
+
+      - name: Build
+        run: >-
+          cmake --build --preset ${{ matrix.build_preset }}
+          ${{ matrix.build_config_flag }}
+
+      - name: Run unit + headless checks
+        run: >-
+          ctest --test-dir out/build/${{ matrix.configure_preset }}
+          ${{ matrix.os == 'windows-latest' && '-C Release' || '' }}
+          --output-on-failure -L "unit|headless"
+
+      - name: Run Linux full validation
+        if: matrix.run_full
+        run: |
+          cmake --build --preset ${{ matrix.build_preset }} --target render_shader_check
+          cmake --build --preset ${{ matrix.build_preset }} --target render_package_validate
+
+      - name: Upload Linux artifacts
+        if: matrix.run_full
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-validation-${{ matrix.name }}
+          path: |
+            out/build/${{ matrix.configure_preset }}/logs
+            out/build/${{ matrix.configure_preset }}/Testing/Temporary
+            out/build/${{ matrix.configure_preset }}/package
+          if-no-files-found: warn
