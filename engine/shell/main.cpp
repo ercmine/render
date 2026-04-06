@@ -1,3 +1,4 @@
+#include "engine/filesystem/filesystem.hpp"
 #include "engine/platform/platform_log.hpp"
 #include "engine/platform/platform_runtime.hpp"
 #include "engine/render/renderer.hpp"
@@ -84,6 +85,21 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  render::filesystem::FileSystemService filesystem;
+  render::filesystem::StorageConfig storage_config{};
+  storage_config.app_name = platform_config.app_name;
+  storage_config.org_name = platform_config.org_name;
+  storage_config.platform_base_path = runtime.paths().base_path;
+  storage_config.platform_pref_path = runtime.paths().pref_path;
+  if (!runtime.paths().temp_path.empty()) {
+    storage_config.platform_temp_path = runtime.paths().temp_path;
+  }
+  if (!filesystem.initialize(storage_config)) {
+    render::platform::log::error("Filesystem service failed to initialize");
+    runtime.shutdown();
+    return 1;
+  }
+
   const render::platform::WindowState& initial_window = runtime.window_state();
 
   render::rendering::Renderer renderer;
@@ -122,8 +138,8 @@ int main(int argc, char** argv) {
   const render::rendering::VertexBufferHandle vertex_buffer = renderer.create_vertex_buffer(vertex_buffer_desc);
   const render::rendering::IndexBufferHandle index_buffer = renderer.create_index_buffer(index_buffer_desc);
 
-  const std::filesystem::path shader_root =
-    std::filesystem::path{runtime.paths().base_path} / "shaders/bin" / shader_backend_directory(renderer.backend());
+  const std::filesystem::path shader_root = filesystem.root(render::filesystem::PathCategory::InstallRoot)
+                                          / "shaders/bin" / shader_backend_directory(renderer.backend());
   const render::rendering::ShaderProgramDescription program_desc{
     .vertex_shader_path = shader_root / "vs_statement4.bin",
     .fragment_shader_path = shader_root / "fs_statement4.bin",
