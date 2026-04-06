@@ -59,6 +59,28 @@ target_include_directories(render_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 render_apply_project_options(render_core)
 render_apply_warnings(render_core)
 
+
+add_library(render_serialization STATIC
+  engine/serialization/bytes.hpp
+  engine/serialization/errors.hpp
+  engine/serialization/binary_writer.hpp
+  engine/serialization/binary_writer.cpp
+  engine/serialization/binary_reader.hpp
+  engine/serialization/binary_reader.cpp
+  engine/serialization/schema.hpp
+  engine/serialization/schema.cpp
+  engine/serialization/core_types.hpp
+  engine/serialization/core_types.cpp
+  engine/serialization/payloads.hpp
+  engine/serialization/payloads.cpp
+  engine/serialization/serialization.hpp
+)
+add_library(render::serialization ALIAS render_serialization)
+target_include_directories(render_serialization PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(render_serialization PUBLIC render::core)
+render_apply_project_options(render_serialization)
+render_apply_warnings(render_serialization)
+
 add_library(render_platform STATIC
   engine/platform/platform_types.hpp
   engine/platform/platform_runtime.hpp
@@ -89,7 +111,7 @@ add_library(render_engine STATIC
   engine/engine.cpp
 )
 add_library(render::engine ALIAS render_engine)
-target_link_libraries(render_engine PUBLIC render::core render::platform render::renderer)
+target_link_libraries(render_engine PUBLIC render::core render::platform render::renderer render::serialization)
 render_apply_project_options(render_engine)
 render_apply_warnings(render_engine)
 
@@ -129,8 +151,15 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_core_runtime_tests)
   render_apply_warnings(render_core_runtime_tests)
 
+
+  add_executable(render_serialization_tests tests/serialization/serialization_tests.cpp)
+  target_link_libraries(render_serialization_tests PRIVATE render::serialization)
+  render_apply_project_options(render_serialization_tests)
+  render_apply_warnings(render_serialization_tests)
+
   add_test(NAME render_platform_types_tests COMMAND render_platform_types_tests)
   add_test(NAME render_core_runtime_tests COMMAND render_core_runtime_tests)
+  add_test(NAME render_serialization_tests COMMAND render_serialization_tests)
 endif()
 
 message(STATUS "Configured ${PROJECT_NAME} ${PROJECT_VERSION} for ${CMAKE_SYSTEM_NAME}")
