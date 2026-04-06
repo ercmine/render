@@ -37,3 +37,15 @@ New engine-owned geometry submission files:
 `Renderer` now exposes mesh/index/instance buffer creation + update hooks and both unique and instanced submission entry points.
 
 bgfx handles remain internal to backend implementation (`engine/render/bgfx/renderer_bgfx.cpp`).
+
+## Lighting frame builder (Statement 13)
+
+`lighting.hpp/.cpp` defines the engine-owned forward-plus style lighting planning layer.
+
+- Input: visible directional lights, point lights, and renderable bounds/flags.
+- Planning: capped light ranking and per-object light list generation.
+- Output: deterministic packed CPU structures suitable for GPU upload in future passes.
+- Controls: fog, bloom, shadows, and outlines with validation helpers.
+- Diagnostics: selected/culled light counts and highlighted/shadowed object metrics.
+
+This module intentionally keeps bgfx API details out of gameplay-facing code while preparing a scalable path to tiled/clustered improvements later.

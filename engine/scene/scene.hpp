@@ -58,6 +58,7 @@ struct LightComponent {
   core::Vec3 color{1.0F, 1.0F, 1.0F};
   float intensity{1.0F};
   float range{10.0F};
+  bool casts_shadows{false};
 };
 
 struct RenderableComponent {
@@ -68,6 +69,30 @@ struct RenderableComponent {
   std::uint32_t index_count{0};
   rendering::MaterialBinding material{};
   rendering::DrawState draw_state{};
+  bool lit{true};
+  core::Vec3 albedo_tint{1.0F, 1.0F, 1.0F};
+  core::Vec3 emissive_color{0.0F, 0.0F, 0.0F};
+  float emissive_intensity{0.0F};
+  bool highlighted{false};
+};
+
+struct SceneFogSettings {
+  bool enabled{false};
+  core::Vec3 color{0.07F, 0.08F, 0.10F};
+  float density{0.025F};
+  float near_distance{4.0F};
+  float far_distance{40.0F};
+};
+
+struct SceneBloomSettings {
+  bool enabled{true};
+  float threshold{1.0F};
+  float intensity{0.75F};
+};
+
+struct SceneLightingSettings {
+  SceneFogSettings fog{};
+  SceneBloomSettings bloom{};
 };
 
 struct CameraView {
@@ -134,6 +159,10 @@ public:
   [[nodiscard]] std::optional<CameraView> build_camera_view(float aspect_ratio) const;
   [[nodiscard]] std::vector<VisibleRenderable> collect_visible_renderables(std::uint32_t layer_mask = kVisibilityAll) const;
   [[nodiscard]] std::vector<VisibleLight> collect_visible_lights(std::uint32_t layer_mask = kVisibilityAll) const;
+  [[nodiscard]] std::vector<VisibleRenderable> collect_highlighted_renderables(std::uint32_t layer_mask = kVisibilityAll) const;
+
+  void set_lighting_settings(const SceneLightingSettings& settings);
+  [[nodiscard]] const SceneLightingSettings& lighting_settings() const noexcept;
 
   void walk_depth_first(const std::function<void(SceneNodeId)>& visitor) const;
 
@@ -167,6 +196,7 @@ private:
   std::vector<NodeRecord> nodes_{};
   std::vector<std::uint32_t> free_indices_{};
   std::optional<SceneNodeId> active_camera_{};
+  SceneLightingSettings lighting_settings_{};
 };
 
 }  // namespace render::scene
