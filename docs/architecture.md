@@ -1,4 +1,4 @@
-# Architecture Snapshot (Statement 5)
+# Architecture Snapshot (Statements 5-11)
 
 ## Runtime layering now implemented
 
@@ -34,3 +34,9 @@
 5. **Core runtime layer (`engine/core`)**
    - Foundational math, transforms, camera helpers, colors, UUID/hash/random utilities.
    - Shared runtime services for memory, threading, logging, assertions, and profiling hooks.
+
+
+6. **Scene runtime layer (`engine/scene`)**
+   - Engine-owned scene graph with stable node handles, transform hierarchy, visibility, and debug names.
+   - Optional camera/light/renderable attachments with traversal and renderer extraction helpers.
+   - Explicit update step for dirty world transform propagation (`Scene::update_world_transforms`).

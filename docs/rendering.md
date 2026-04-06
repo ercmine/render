@@ -82,3 +82,15 @@ Deferred to later statements:
 - compute shader runtime integration (manifest structure already reserves this)
 - centralized material system on top of `ShaderProgramId`
 - full editor/content pipeline tooling around variants and dependency graphs
+
+
+## Scene integration (Statement 11)
+
+`render_shell` now drives rendering through `engine/scene`:
+
+- scene nodes carry camera/light/renderable attachments
+- frame flow calls `Scene::update_world_transforms()` before extraction
+- view matrices come from `Scene::build_camera_view(...)`
+- draw submissions are emitted from `Scene::collect_visible_renderables(...)`
+
+This establishes a stable engine-owned scene/runtime boundary above the renderer API.
