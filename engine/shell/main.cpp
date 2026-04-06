@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
   render::platform::RuntimeConfig platform_config{};
   platform_config.app_name = "render-shell";
   platform_config.org_name = "render";
-  platform_config.window.title = "render :: Statement 4 shell";
+  platform_config.window.title = "render :: Statement 9 shell";
   platform_config.window.width = 1280;
   platform_config.window.height = 720;
   platform_config.window.resizable = true;
@@ -154,11 +154,16 @@ int main(int argc, char** argv) {
     runtime.pump_events();
 
     const render::platform::WindowState& window = runtime.window_state();
-    if (window.resized_this_frame && window.width > 0 && window.height > 0) {
-      renderer.resize(window.width, window.height);
+    if (window.resized_this_frame) {
+      renderer.request_resize(window.width, window.height);
     }
 
-    renderer.begin_frame();
+    const bool frame_started = renderer.begin_frame();
+    if (!frame_started) {
+      runtime.end_frame();
+      render::platform::PlatformRuntime::sleep_for_milliseconds(1);
+      continue;
+    }
 
     render::rendering::ViewDescription view{};
     view.rect.width = static_cast<std::uint16_t>(window.width);
@@ -186,8 +191,6 @@ int main(int argc, char** argv) {
 
     renderer.end_frame();
     runtime.end_frame();
-
-    render::platform::PlatformRuntime::sleep_for_milliseconds(1);
   }
 
   renderer.destroy_program(program);

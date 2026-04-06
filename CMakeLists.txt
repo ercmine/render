@@ -181,6 +181,11 @@ if(RENDER_BUILD_TESTS)
   render_apply_project_options(render_headless_validation)
   render_apply_warnings(render_headless_validation)
 
+  add_executable(render_renderer_lifecycle_tests tests/render/renderer_lifecycle_tests.cpp)
+  target_link_libraries(render_renderer_lifecycle_tests PRIVATE render::renderer)
+  render_apply_project_options(render_renderer_lifecycle_tests)
+  render_apply_warnings(render_renderer_lifecycle_tests)
+
   add_test(NAME unit.platform.types COMMAND render_platform_types_tests)
   set_tests_properties(unit.platform.types PROPERTIES LABELS "unit;platform")
   add_test(NAME unit.core.runtime COMMAND render_core_runtime_tests)
@@ -189,12 +194,14 @@ if(RENDER_BUILD_TESTS)
   set_tests_properties(unit.serialization.roundtrip PROPERTIES LABELS "unit;serialization")
   add_test(NAME unit.filesystem.service COMMAND render_filesystem_tests)
   set_tests_properties(unit.filesystem.service PROPERTIES LABELS "unit;filesystem")
+  add_test(NAME unit.renderer.lifecycle COMMAND render_renderer_lifecycle_tests)
+  set_tests_properties(unit.renderer.lifecycle PROPERTIES LABELS "unit;renderer")
   add_test(NAME headless.smoke.startup COMMAND render_headless_validation)
   set_tests_properties(headless.smoke.startup PROPERTIES LABELS "headless;smoke")
 
   add_custom_target(render_test_unit
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --label-regex unit
-    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests
+    DEPENDS render_platform_types_tests render_core_runtime_tests render_serialization_tests render_filesystem_tests render_renderer_lifecycle_tests
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "Running render unit tests"
   )

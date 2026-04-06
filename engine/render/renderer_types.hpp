@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 
 namespace render::platform {
@@ -22,12 +23,30 @@ enum class RendererBackend : std::uint8_t {
   OpenGL,
 };
 
+enum class RendererLifecycleState : std::uint8_t {
+  Uninitialized = 0,
+  Initializing,
+  Ready,
+  Resizing,
+  Recovering,
+  ShuttingDown,
+  Failed,
+};
+
+enum class RendererResetFlag : std::uint32_t {
+  None = 0,
+  VSync = 1U << 0U,
+};
+
 struct RendererConfig {
   RendererBackend backend{RendererBackend::Auto};
   std::uint32_t width{1280};
   std::uint32_t height{720};
   bool debug{false};
   bool vsync{true};
+  std::uint32_t reset_flags{0};
+  std::uint32_t min_frame_time_ms{0};
+  bool allow_automatic_recovery{true};
 };
 
 struct RendererCaps {
@@ -38,6 +57,40 @@ struct RendererCaps {
   bool homogeneous_depth{false};
   bool origin_bottom_left{false};
 };
+
+struct RendererFrameStats {
+  std::uint64_t frame_count{0};
+  std::uint32_t backbuffer_width{0};
+  std::uint32_t backbuffer_height{0};
+  std::uint32_t last_frame_time_ms{0};
+  bool vsync_enabled{true};
+  bool frame_active{false};
+};
+
+struct RendererStatus {
+  RendererLifecycleState state{RendererLifecycleState::Uninitialized};
+  RendererBackend selected_backend{RendererBackend::Auto};
+  RendererFrameStats frame{};
+  bool device_lost{false};
+  bool can_render{false};
+};
+
+struct RendererConfigValidation {
+  bool valid{false};
+  std::string reason{};
+};
+
+[[nodiscard]] constexpr std::uint32_t to_mask(const RendererResetFlag flag) noexcept {
+  return static_cast<std::uint32_t>(flag);
+}
+
+[[nodiscard]] constexpr bool is_explicit_backend_request(const RendererBackend backend) noexcept {
+  return backend != RendererBackend::Auto;
+}
+
+[[nodiscard]] const char* to_string(RendererBackend backend) noexcept;
+[[nodiscard]] const char* to_string(RendererLifecycleState state) noexcept;
+[[nodiscard]] RendererConfigValidation validate_renderer_config(const RendererConfig& config);
 
 struct ViewId {
   std::uint16_t value{0};
