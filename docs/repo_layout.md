@@ -26,7 +26,7 @@ This repository is organized to separate runtime, game logic, content pipelines,
 ## Planned Internal Organization
 
 ### `engine/`
-- `platform/`, `render/`, `scene/`, `math/`, `core/`, `procgen/`, `ui/`
+- `platform/`, `render/`, `scene/`, `math/`, `core/`, `filesystem/`, `procgen/`, `ui/`
 
 ### `game/`
 - `colony/`, `bugs/`, `items/`, `economy/`, `expeditions/`, `market/`, `save/`
