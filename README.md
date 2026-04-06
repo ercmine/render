@@ -2,7 +2,7 @@
 
 `render` is a desktop-first C++20 codebase for building a custom 3D rendering engine and a game layer on top of it.
 
-## Current milestone (Statement 4)
+## Current milestone (Statement 6)
 
 The repository now includes:
 
@@ -10,6 +10,7 @@ The repository now includes:
 - an engine-owned renderer interface (`engine/render`)
 - a bgfx/bx/bimg-backed renderer implementation hidden behind that interface
 - a runnable shell that clears and submits minimal geometry each frame
+- a deterministic serialization foundation for save, recipe, item, room, and network payload schemas
 
 ## Key boundaries
 
@@ -34,3 +35,4 @@ cmake --build --preset linux-debug
 - `docs/build.md` — build/configure/run commands
 - `docs/dependencies.md` — dependency resolution and override strategy
 - `docs/architecture.md` — platform + renderer boundary and layering notes
+- `docs/serialization.md` — canonical binary encoding, schema/version policy, and migration hooks
