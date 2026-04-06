@@ -16,6 +16,7 @@ include(CompilerWarnings)
 include(Dependencies)
 include(Versioning)
 include(Utils)
+include(ShaderCompilation)
 
 render_prevent_in_source_builds()
 render_apply_standard_settings()
@@ -23,6 +24,7 @@ render_apply_standard_settings()
 render_setup_options()
 render_setup_dependencies()
 render_setup_versioning()
+render_setup_shader_compilation()
 
 add_library(render_platform STATIC
   engine/platform/platform_types.hpp
@@ -36,11 +38,25 @@ target_link_libraries(render_platform PUBLIC render::dependencies)
 render_apply_project_options(render_platform)
 render_apply_warnings(render_platform)
 
+add_library(render_renderer STATIC
+  engine/render/renderer.hpp
+  engine/render/renderer_types.hpp
+  engine/render/buffer_types.hpp
+  engine/render/shader_types.hpp
+  engine/render/texture_types.hpp
+  engine/render/bgfx/renderer_bgfx.cpp
+)
+add_library(render::renderer ALIAS render_renderer)
+target_include_directories(render_renderer PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(render_renderer PUBLIC render::platform render::dependencies)
+render_apply_project_options(render_renderer)
+render_apply_warnings(render_renderer)
+
 add_library(render_engine STATIC
   engine/engine.cpp
 )
 add_library(render::engine ALIAS render_engine)
-target_link_libraries(render_engine PUBLIC render::platform)
+target_link_libraries(render_engine PUBLIC render::platform render::renderer)
 render_apply_project_options(render_engine)
 render_apply_warnings(render_engine)
 
@@ -53,6 +69,7 @@ render_apply_warnings(render_game)
 add_executable(render_shell engine/shell/main.cpp)
 add_executable(render::shell ALIAS render_shell)
 target_link_libraries(render_shell PRIVATE render::engine)
+add_dependencies(render_shell render_shaders)
 render_apply_project_options(render_shell)
 render_apply_warnings(render_shell)
 

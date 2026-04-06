@@ -2,25 +2,20 @@
 
 `render` is a desktop-first C++20 codebase for building a custom 3D rendering engine and a game layer on top of it.
 
-## Current milestone (Statement 3)
+## Current milestone (Statement 4)
 
-The repository now includes a first runnable engine shell and a concrete platform layer backed by **SDL3**.
+The repository now includes:
 
-Implemented platform services (behind internal abstractions):
-
-- application startup/shutdown
-- window creation and lifecycle events
-- event pumping
-- keyboard + mouse input state collection
-- gamepad/controller connect/disconnect + state updates
-- timing/frame delta utilities
-- base/pref/temp path queries
-- basic audio stream plumbing for future PCM feeding
+- an SDL3-backed platform runtime (`engine/platform`)
+- an engine-owned renderer interface (`engine/render`)
+- a bgfx/bx/bimg-backed renderer implementation hidden behind that interface
+- a runnable shell that clears and submits minimal geometry each frame
 
 ## Key boundaries
 
-- Engine modules consume internal platform interfaces and types from `engine/platform/`.
-- SDL3 is isolated to `engine/platform/sdl/` implementation code.
+- Engine/game modules should consume internal interfaces in `engine/platform/` and `engine/render/`.
+- SDL3 usage is isolated to `engine/platform/sdl/` and renderer native-window glue.
+- bgfx/bx/bimg usage is isolated to `engine/render/bgfx/`.
 
 ## Build quick start
 
@@ -37,5 +32,5 @@ cmake --build --preset linux-debug
 ## Docs
 
 - `docs/build.md` — build/configure/run commands
-- `docs/dependencies.md` — SDL3 dependency resolution strategy
-- `docs/architecture.md` — platform boundary and layering notes
+- `docs/dependencies.md` — dependency resolution and override strategy
+- `docs/architecture.md` — platform + renderer boundary and layering notes
