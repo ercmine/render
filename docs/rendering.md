@@ -1,9 +1,12 @@
-# Rendering + Shader Pipeline (Statements 9-10)
+# Rendering + Shader Pipeline (Statements 9-13)
 
 ## Scope
 
 - Statement 9: renderer lifecycle hardening (startup/frame/resize/recovery).
 - Statement 10: canonical shader source/build/runtime pipeline with variants, metadata, staging, and hot reload.
+- Statement 11: scene graph integration (camera/light/renderable extraction).
+- Statement 12: geometry submission + batching foundation.
+- Statement 13: forward-plus style lighting data path (light selection, fog/bloom/shadow/outline settings, and diagnostics).
 
 ## Engine-owned shader architecture
 
@@ -156,3 +159,45 @@ These diagnostics are intended for profiling/debug overlays and frame-level inst
 - Dynamic GPU buffer update path currently uses a placeholder API contract and is staged for a follow-up statement.
 - Full material parameter/uniform binding and texture set binding beyond fixed slots is deferred.
 - GPU-driven culling/indirect draw remains deferred by design.
+
+## Forward-plus style lighting path (Statement 13)
+
+Statement 13 introduces the first engine-owned lighting frame builder under `engine/render/lighting.*`.
+
+### What \"forward-plus style\" means in this repo right now
+
+This is a **forward renderer with explicit light selection**, not a full clustered/tiled implementation yet.
+
+Current strategy:
+
+1. Collect scene lights per-view (`Scene::collect_visible_lights`).
+2. Rank point lights by camera-relative importance (intensity + range-weighted distance).
+3. Keep only a capped point-light set (`LightingSelectionConfig::max_point_lights`, hard-clamped by `kMaxPointLights`).
+4. Build per-object point-light lists capped by `max_lights_per_object`.
+5. Upload deterministic packed arrays (`DirectionalLightGpu`, `PointLightGpu`, `ObjectLightList`) to the rendering path.
+
+This avoids unbounded \"every object loops every light\" behavior while preserving a clean extension path toward tiled/clustered lists later.
+
+### Implemented engine-facing controls
+
+- Directional lights (color/intensity/direction, shadow flag).
+- Point lights (position/color/intensity/range, shadow flag placeholder).
+- Fog settings (`FogSettings`) with linear/exp/exp2 modes and validation.
+- Bloom settings (`BloomSettings`) with threshold/intensity/downsample controls and validation.
+- Directional shadow settings (`ShadowSettings`) with map size + bias/filter defaults and validation.
+- Outline settings (`OutlineSettings`) for stylized highlight composition controls.
+- Diagnostics (`LightingDiagnostics`) for selected/culled counts and highlight/shadow stats.
+
+### Current integration state
+
+- Scene components now include `RenderableComponent` emissive/highlight fields and `LightComponent::casts_shadows`.
+- Scene-level lighting knobs are stored in `SceneLightingSettings` (`fog` + `bloom`) and consumed by the shell.
+- `render_shell` now builds a stylized validation setup with directional + multiple point lights, emissive/highlighted renderables, and lighting frame extraction each frame.
+
+### Deferred to follow-up statements
+
+- GPU-side uniform/buffer binding of packed lighting data to lit shaders.
+- Dedicated shadow-map render passes and shader sampling.
+- Bloom extraction/blur/composite and outline composition passes.
+- Full lit material shader programs (current shell still renders via debug triangle program).
+- Debug view rendering modes (normals, emissive-only, bloom extraction, shadow atlas visualization).

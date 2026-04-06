@@ -2,6 +2,7 @@
 #include "engine/platform/platform_log.hpp"
 #include "engine/platform/platform_runtime.hpp"
 #include "engine/render/draw_submission.hpp"
+#include "engine/render/lighting.hpp"
 #include "engine/render/renderer.hpp"
 #include "engine/render/shader_library.hpp"
 #include "engine/scene/scene.hpp"
@@ -45,7 +46,7 @@ int main(int argc, char** argv) {
   render::platform::RuntimeConfig platform_config{};
   platform_config.app_name = "render-shell";
   platform_config.org_name = "render";
-  platform_config.window.title = "render :: Statement 12 geometry shell";
+  platform_config.window.title = "render :: Statement 13 stylized lighting shell";
   platform_config.window.width = 1280;
   platform_config.window.height = 720;
   platform_config.window.resizable = true;
@@ -104,6 +105,23 @@ int main(int argc, char** argv) {
   scene.set_camera(camera_node, {});
   scene.set_active_camera(camera_node);
 
+  render::scene::SceneLightingSettings scene_lighting{};
+  scene_lighting.fog.enabled = true;
+  scene_lighting.fog.density = 0.04F;
+  scene_lighting.bloom.enabled = true;
+  scene_lighting.bloom.threshold = 0.8F;
+  scene_lighting.bloom.intensity = 1.2F;
+  scene.set_lighting_settings(scene_lighting);
+
+  const auto sun_node = scene.create_node("sun_directional");
+  scene.set_parent(sun_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+  render::scene::LightComponent sun{};
+  sun.type = render::scene::LightType::Directional;
+  sun.color = {1.0F, 0.95F, 0.85F};
+  sun.intensity = 1.8F;
+  sun.casts_shadows = true;
+  scene.set_light(sun_node, sun);
+
   constexpr std::uint32_t kInstanceRows = 12;
   std::vector<render::scene::SceneNodeId> nodes;
   nodes.reserve(kInstanceRows * kInstanceRows);
@@ -120,9 +138,26 @@ int main(int argc, char** argv) {
       rc.index_buffer = index_buffer;
       rc.index_count = static_cast<std::uint32_t>(indices.size());
       rc.material.program = program;
+      rc.highlighted = (x == kInstanceRows / 2U && y == kInstanceRows / 2U);
+      rc.emissive_color = {0.1F, 0.4F, 1.0F};
+      rc.emissive_intensity = (x + y) % 5U == 0U ? 2.0F : 0.0F;
       scene.set_renderable(node, rc);
       nodes.push_back(node);
     }
+  }
+
+  for (std::uint32_t i = 0; i < 10U; ++i) {
+    const auto light_node = scene.create_node("biolum_point");
+    scene.set_parent(light_node, root, render::scene::ReparentPolicy::KeepLocalTransform);
+    render::core::Transform t{};
+    t.translation = {static_cast<float>(i) - 5.0F, 1.5F, ((i % 2U) == 0U) ? 1.25F : -1.25F};
+    scene.set_local_transform(light_node, t);
+    render::scene::LightComponent point{};
+    point.type = render::scene::LightType::Point;
+    point.color = {0.2F, 0.7F, 1.0F};
+    point.intensity = 2.0F;
+    point.range = 5.0F;
+    scene.set_light(light_node, point);
   }
 
   while (!runtime.should_quit()) {
@@ -148,14 +183,19 @@ int main(int argc, char** argv) {
 
     const float aspect_ratio = static_cast<float>(window.width) / static_cast<float>(window.height);
     const auto camera_view = scene.build_camera_view(aspect_ratio);
+    render::core::Vec3 camera_position{};
     if (camera_view.has_value()) {
       const auto view_matrix = to_array(camera_view->view);
       const auto projection_matrix = to_array(camera_view->projection);
       renderer.set_view_transform(kMainView, std::span<const float, 16>{view_matrix}, std::span<const float, 16>{projection_matrix});
+      if (const auto* camera_world = scene.world_transform(camera_view->node); camera_world != nullptr) {
+        camera_position = camera_world->translation;
+      }
     }
 
     std::vector<render::rendering::DrawSubmission> submissions;
     const auto visible = scene.collect_visible_renderables();
+    const auto visible_lights = scene.collect_visible_lights();
     submissions.reserve(visible.size());
     for (const auto& vr : visible) {
       if (vr.renderable == nullptr || vr.world_transform == nullptr || !vr.renderable->material.valid()) continue;
@@ -171,6 +211,69 @@ int main(int argc, char** argv) {
       draw.sort_key = static_cast<std::uint32_t>(vr.node.index);
       submissions.push_back(draw);
     }
+
+    std::vector<render::rendering::DirectionalLightInput> directional_lights;
+    std::vector<render::rendering::PointLightInput> point_lights;
+    for (const auto& visible_light : visible_lights) {
+      if (visible_light.light == nullptr || visible_light.world_transform == nullptr) {
+        continue;
+      }
+      if (visible_light.light->type == render::scene::LightType::Directional) {
+        const render::core::Vec3 direction = render::core::forward(*visible_light.world_transform) * -1.0F;
+        directional_lights.push_back(render::rendering::DirectionalLightInput{
+          .direction = direction,
+          .color = visible_light.light->color,
+          .intensity = visible_light.light->intensity,
+          .casts_shadows = visible_light.light->casts_shadows,
+        });
+      } else {
+        point_lights.push_back(render::rendering::PointLightInput{
+          .position = visible_light.world_transform->translation,
+          .color = visible_light.light->color,
+          .intensity = visible_light.light->intensity,
+          .range = visible_light.light->range,
+          .casts_shadows = visible_light.light->casts_shadows,
+        });
+      }
+    }
+
+    std::vector<render::rendering::RenderableLightingInput> lit_inputs;
+    lit_inputs.reserve(visible.size());
+    for (const auto& vr : visible) {
+      if (vr.world_transform == nullptr || vr.renderable == nullptr) {
+        continue;
+      }
+      lit_inputs.push_back(render::rendering::RenderableLightingInput{
+        .object_id = vr.node.index,
+        .position = vr.world_transform->translation,
+        .bounding_radius = 1.0F,
+        .highlighted = vr.renderable->highlighted,
+      });
+    }
+
+    render::rendering::FogSettings fog{};
+    fog.enabled = scene.lighting_settings().fog.enabled;
+    fog.color = scene.lighting_settings().fog.color;
+    fog.density = scene.lighting_settings().fog.density;
+    fog.near_distance = scene.lighting_settings().fog.near_distance;
+    fog.far_distance = scene.lighting_settings().fog.far_distance;
+
+    render::rendering::BloomSettings bloom{};
+    bloom.enabled = scene.lighting_settings().bloom.enabled;
+    bloom.threshold = scene.lighting_settings().bloom.threshold;
+    bloom.intensity = scene.lighting_settings().bloom.intensity;
+
+    const render::rendering::LightingFrameData lighting_frame = render::rendering::build_forward_plus_frame_data(
+      camera_position,
+      directional_lights,
+      point_lights,
+      lit_inputs,
+      {},
+      fog,
+      bloom,
+      {},
+      {});
+    (void)lighting_frame;
 
     render::rendering::SubmissionDiagnostics diagnostics{};
     const auto batches = render::rendering::build_draw_batches(submissions, {}, &diagnostics);

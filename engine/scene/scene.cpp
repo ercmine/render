@@ -439,6 +439,37 @@ std::vector<VisibleLight> Scene::collect_visible_lights(const std::uint32_t laye
   return out;
 }
 
+std::vector<VisibleRenderable> Scene::collect_highlighted_renderables(const std::uint32_t layer_mask) const {
+  std::vector<VisibleRenderable> out;
+  out.reserve(nodes_.size());
+  walk_depth_first([this, &out, layer_mask](const SceneNodeId node) {
+    const NodeRecord* record = lookup(node);
+    if (record == nullptr || !record->visibility.enabled || !record->renderable.has_value()) {
+      return;
+    }
+
+    const RenderableComponent& renderable_component = record->renderable.value();
+    if (!renderable_component.enabled || !renderable_component.highlighted) {
+      return;
+    }
+
+    if ((record->visibility.layer_mask & layer_mask) == 0U || (renderable_component.layer_mask & layer_mask) == 0U) {
+      return;
+    }
+
+    out.push_back({.node = node, .renderable = &renderable_component, .world_transform = &record->world});
+  });
+  return out;
+}
+
+void Scene::set_lighting_settings(const SceneLightingSettings& settings) {
+  lighting_settings_ = settings;
+}
+
+const SceneLightingSettings& Scene::lighting_settings() const noexcept {
+  return lighting_settings_;
+}
+
 void Scene::walk_depth_first(const std::function<void(SceneNodeId)>& visitor) const {
   std::vector<SceneNodeId> stack = root_nodes();
   while (!stack.empty()) {

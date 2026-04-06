@@ -62,6 +62,9 @@ int main() {
   renderable.material.program.idx = 11;
   renderable.index_count = 6;
   renderable.layer_mask = 0x1u;
+  renderable.highlighted = true;
+  renderable.emissive_color = {0.5F, 0.8F, 1.0F};
+  renderable.emissive_intensity = 3.0F;
   assert(graph.set_renderable(grandchild, renderable));
 
   const auto default_visible = graph.collect_visible_renderables(0x2u);
@@ -72,6 +75,17 @@ int main() {
   assert(graph.set_visibility(grandchild, visible));
   const auto filtered_visible = graph.collect_visible_renderables(0x1u);
   assert(filtered_visible.size() == 1);
+  const auto highlighted = graph.collect_highlighted_renderables(0x1u);
+  assert(highlighted.size() == 1);
+
+  scene::SceneLightingSettings lighting{};
+  lighting.fog.enabled = true;
+  lighting.fog.density = 0.03F;
+  lighting.bloom.enabled = true;
+  lighting.bloom.intensity = 1.2F;
+  graph.set_lighting_settings(lighting);
+  assert(graph.lighting_settings().fog.enabled);
+  assert(core::nearly_equal(graph.lighting_settings().bloom.intensity, 1.2F));
 
   assert(graph.set_debug_name(child, "duplicate"));
   assert(graph.set_debug_name(grandchild, "duplicate"));
